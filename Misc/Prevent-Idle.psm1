@@ -4,8 +4,6 @@ Function Prevent-Idle
         .NOTES
             Created By: Kyle Hewitt
             Created In: 2019
-            Last Edit: 4/30/20
-            Version: 1.0.0
 	
         .DESCRIPTION
 	    Send Keys Reference: https://ss64.com/vb/sendkeys.html
