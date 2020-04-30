@@ -21,7 +21,7 @@ Process
     While ($TRUE)
     {
         $ObjShell.SendKeys("{$SendKey}")
-        Write-Host "[$(Get-Date)] $SendKey'd. Waiting $IntervalSeconds." -ForegroundColor Cyan
+        Write-Host "[$(Get-Date)] $SendKey'd. Waiting $IntervalSeconds seconds." -ForegroundColor Cyan
         Start-Sleep -Seconds $IntervalSeconds
     }
 }
