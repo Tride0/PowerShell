@@ -1,5 +1,14 @@
+
 Function Get-RegistryValue
 {
+    <#
+        .NOTES
+            Created By: Kyle Hewitt
+            Created On: 5/04/20
+
+        .DESCRIPTION
+            This tool gets a regstiry value but will assist in retrieving a value if a full path isn't provided.
+    #>
     Param(
         $Computer = $env:COMPUTERNAME,
         $BaseKey = 'LocalMachine',
