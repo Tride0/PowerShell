@@ -153,7 +153,7 @@ Function Get-RegistryValue
     Function Get-RegBaseKey
     {
         # Prompt for Choice
-        $BaseKeys = ([Microsoft.Win32.Registry].GetFields().Name) | Sort-Object
+        $BaseKeys = ([Microsoft.Win32.Registry].GetFields().Name) | Sort-Object # This is likely a problem becuase it looks at the local machines' registrys and not the remote machine's.
         $PromptPrefix += "`nSelect an option to go to that Base Key"
         $Choice = Select-Choice -Options $BaseKeys -PromptPrefix $PromptPrefix
         Return $BaseKeys[($Choice-1)]
