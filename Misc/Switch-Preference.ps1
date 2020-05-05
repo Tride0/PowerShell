@@ -18,7 +18,7 @@
     $CurrentValue = (Get-Variable -Name "$Preference`Preference" -Scope Global).value
     If ($NewPreference)
     {
-        Write-Host "Setting $Preference`Preference to $NewPreference"
+        Write-Verbose "Setting $Preference`Preference to $NewPreference"
         # Store Previous Preference
         Set-Variable -Name "SP_$Preference`Preference" -Value $CurrentValue -Scope Global
         # Set new Preference
@@ -28,7 +28,7 @@
     {
         # Get Previous Prefeerence
         $SPPreferenceVar = Get-Variable "SP_$Preference`Preference" -Scope Global
-        Write-Host "Setting $Preference`Preference to $($SPPreferenceVar.Value)"
+        Write-Verbose "Setting $Preference`Preference to $($SPPreferenceVar.Value)"
         # Set Previous preference
         Set-Variable "$Preference`Preference" -Value $SPPreferenceVar.Value -Scope Global
         # Store the New Previous Preference
