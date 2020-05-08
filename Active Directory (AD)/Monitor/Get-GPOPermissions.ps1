@@ -1,3 +1,5 @@
+Import-Module GroupPolicy, ActiveDirectory -ErrorAction Stop
+
 $GPOs = Get-GPO -All
 
 Foreach ($GPO in $GPOs)

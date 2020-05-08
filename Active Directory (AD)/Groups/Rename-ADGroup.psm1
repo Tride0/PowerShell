@@ -1,4 +1,4 @@
-﻿Function Rename-Group
+﻿Function Rename-ADGroup
 {
     Param(
         [Parameter(Mandatory=$True,Position=0)]$OldName,

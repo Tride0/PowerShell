@@ -1,4 +1,4 @@
-﻿Function Check-IfMember
+﻿Function Check-IfUserIsMember
 {
     <#
         Created By: Kyle Hewitt
