@@ -1,11 +1,11 @@
-﻿Function Clear-ADGroupMembers
-{
+﻿Function Clear-ADGroupMembers {
     <#
         .DESCRIPTION
             Removes all members from a group
         .Notes
             Created By: Kyle Hewitt
             Created On: 2020/05/06
+            Version: 2020.05.06
     #>
     [cmdletbinding()]
     Param
@@ -13,8 +13,7 @@
         [String[]]$Group,
         [String]$Domain = $env:USERDNSDOMAIN
     )
-    Begin
-    {
+    Begin {
         # Create Searcher for AD
         $ADSearcher = New-Object -TypeName System.DirectoryServices.DirectorySearcher
         
@@ -25,10 +24,8 @@
         $DomainRoot = "DC=$($Domain.Replace('.',',DC='))"
         $ADSearcher.SearchRoot = "LDAP://$DomainRoot"
     }
-    Process
-    {
-        Foreach ($GroupName in $Group)
-        {
+    Process {
+        Foreach ($GroupName in $Group) {
             # Create Filter to search for group
             $ADSearcher.Filter = "(|(samaccountname=$GroupName)(name=$GroupName)(displayname=$GroupName)(distinguishedname=$Groupname))"
             
@@ -42,8 +39,7 @@
             $ADGroupObject.CommitChanges()
         }
     }
-    End
-    {
+    End {
         $ADSearcher.Dispose()
     }
 }

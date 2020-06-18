@@ -5,7 +5,7 @@
         .NOTES
             Created By: Kyle Hewitt
             Created On: 2020/05/08
-            Version: 2020.05.11
+            Version: 2020.06.01
     #>
     Param(
         [String] $CSVPath = "$PSScriptRoot\Create_ADUsers.csv",
@@ -111,7 +111,7 @@
             Add-ToLog -Value "Creating CSV File"
             # Create CSV file
             [PSCustomObject]@{ } | 
-            Select-Object -Property 'Name', 'Path', 'AccountPassword' |
+            Select-Object -Property 'Name', 'Path', 'AccountPassword', 'Server', 'RunAsUserName', 'RunAsPassword' |
             Export-Csv -Path $CSVPath -NoTypeInformation -Force
             
             Write-Host "New-ADUser Parameters:`n$(($NewADGroupAvailableParameters | Sort-Object) -join "`n")"
@@ -149,15 +149,24 @@
         # Go through each entry in the CSV file and create the users
         :CSVInfoForEach Foreach ($Entry in $CSVInfo) {
             Remove-Variable NewADUserParameters, Domain, DomainContext, DomainObject -ErrorAction SilentlyContinue
-
+            
+            $NewADUserParameters = [System.Collections.Specialized.OrderedDictionary]@{ }
+            
             If (![Boolean]$Entry.Name) {
-                Add-ToFailureLog -Info $Entry -Note "$Domain not found"
-                Add-ToLog -Value "$Domain not found. Skipping."
+                Add-ToFailureLog -Info $Entry -Note "Name not provided. Skipped."
+                Add-ToLog -Value "Name not provided. Skipping."
                 Continue CSVInfoForEach
             }
 
+            # If both UserName and Password were provided for this entry use those credentials to perform the actions
+            If ([Boolean]$Entry.RunAsPassword -and [Boolean]$Entry.RunAsUserName) {
+                $NewADUserParameters.Credential = New-Object -TypeName System.Management.Automation.PSCredential (
+                    $Entry.RunAsUserName,
+                    (ConvertTo-SecureString -String ($Entry.RunAsPassword) -AsPlainText -Force)
+                )
+            }
+
             # Create hashtables to splat onto the cmdlets
-            $NewADUserParameters = [System.Collections.Specialized.OrderedDictionary]@{ }
             :AttributeNamesForEach Foreach ($Attribute in $AttributeNames) {
                 If (![Boolean]$Entry.$Attribute) { Continue AttributeNamesForEach }
                 

@@ -1,21 +1,19 @@
-﻿function Compare-ADGroupMemberships
-{
+﻿function Compare-ADGroupMemberships {
     <#
         .DESCRIPTION
            Compare group memberships of multiple objects and return all common groups
         .NOTES
             Created By: Kyle Hewitt
             Created On: 2020/05/06
+            Version: 2020.05.06
     #>
     Param
     (
         [Parameter(Mandatory)][String[]]$Objects,
         [String]$Domain = $env:UserDNSDOMAIN
     )
-    Begin
-    {
-        If ($Objects.Count -lt 2)
-        {
+    Begin {
+        If ($Objects.Count -lt 2) {
             Write-Error "Provide at least 2 Objects to compare." -ErrorAction Stop
         }
 
@@ -31,41 +29,33 @@
 
         $AllGroups = @()
     }
-    Process
-    {
-        Foreach ($Object in $Objects)
-        {
+    Process {
+        Foreach ($Object in $Objects) {
             $ADSearcher.Filter = "(|(samaccountname=$Object)(name=$Object)(displayname=$Object)(distinguishedname=$Object))"
             $Groups = $ADSearcher.FindOne().Properties.memberof
-            Foreach ($Group in $Groups)
-            {
-                If (![Boolean]$AllGroups -or !$AllGroups.dn.contains($Group))
-                {
+            Foreach ($Group in $Groups) {
+                If (![Boolean]$AllGroups -or !$AllGroups.dn.contains($Group)) {
                     $AllGroups += [PSCustomObject]@{
-                        dn = $Group
+                        dn  = $Group
                         num = 1
                     }
                 }
-                Else
-                {
+                Else {
                     ($AllGroups | Where-Object -FilterScript { $_.dn -eq $Group }).num ++
                 }
             }
         }
     }
-    End
-    {
+    End {
         $CommonGroups = $AllGroups | 
-            Where-Object -FilterScript { $_.num -eq $Objects.Count } |
-            Select-Object -ExpandProperty dn |
-            Sort-Object
+        Where-Object -FilterScript { $_.num -eq $Objects.Count } |
+        Select-Object -ExpandProperty dn |
+        Sort-Object
 
-        If ($CommonGroups.Count -eq 0)
-        {
+        If ($CommonGroups.Count -eq 0) {
             Write-Warning "No common groups found"
         }
-        Else
-        {
+        Else {
             $CommonGroups
         }
     }

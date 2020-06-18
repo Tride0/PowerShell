@@ -1,11 +1,11 @@
-﻿Function Mirror-ADObjectMemberships
-{
+﻿Function Mirror-ADObjectMemberships {
     <#
         .DESCRIPTION
             Mirrors other Object(s) memberships to other Object(s)
         .Notes
             Created By: Kyle Hewitt
             Created On: 2020/05/06
+            Version: 2020.05.06
     #>
     Param
     (
@@ -13,8 +13,7 @@
         [Parameter(Mandatory)][String[]]$ToObject,
         [String]$Domain = $env:ObjectDNSDOMAIN
     )
-    Begin
-    {
+    Begin {
         # Create Searcher for AD
         $ADSearcher = New-Object -TypeName System.DirectoryServices.DirectorySearcher
         
@@ -25,12 +24,10 @@
         $DomainRoot = "DC=$($Domain.Replace('.',',DC='))"
         $ADSearcher.SearchRoot = "LDAP://$DomainRoot"
     }
-    Process
-    {
+    Process {
         # Get Objects to add to Groups
         $ObjectsToAdd = @()
-        Foreach ($Object in $ToObject)
-        {
+        Foreach ($Object in $ToObject) {
             $ADSearcher.Filter = "(|(samaccountname=$Object)(name=$Object)(displayname=$Object)(distinguishedname=$Object))"
             $ObjectsToAdd += $ADSearcher.FindOne().Properties.distinguishedname
         }
@@ -40,21 +37,18 @@
 
         # Get Groups to add Objects to
         $GroupsToAddTo = @()
-        Foreach ($Object in $FromObject)
-        {
+        Foreach ($Object in $FromObject) {
             $ADSearcher.Filter = "(|(samaccountname=$Object)(name=$Object)(displayname=$Object)(distinguishedname=$Object))"
             $GroupsToAddTo += $ADSearcher.FindOne().Properties.memberof
         }
         $GroupsToAddTo = $GroupsToAddTo | Sort-Object -Unique
 
         #Add Objects to the groups
-        Foreach ($Group in $GroupsToAddTo)
-        {
+        Foreach ($Group in $GroupsToAddTo) {
             # Get Group Object to add Objects to
             $ADGroupObject = [adsi]"LDAP://$Group"
 
-            Foreach ($Object in $ObjectsToAdd)
-            {
+            Foreach ($Object in $ObjectsToAdd) {
                 # Add Object to group
                 [Void] $ADGroupObject.member.Add($Object)
             }
@@ -66,8 +60,7 @@
             Remove-Variable ADGroupObject -ErrorAction SilentlyContinue
         }
     }
-    End
-    {
+    End {
         $ADSearcher.Dispose()
     }
 }

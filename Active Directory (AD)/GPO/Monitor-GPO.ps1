@@ -2,7 +2,7 @@
     .NOTES
         Created By: Kyle Hewitt
         Created On: 05-18-2020
-        Version: 2020.05.19
+        Version: 2020.06.10
 
     .DESCRIPTION
         Script will backup and notify of changes since previous backup
@@ -11,7 +11,7 @@ Param(
     $BackUpLocation = "$PSScriptRoot\Backups",
     $DiffsLocation = "$BackUpLocation\Diffs",
     $DiffsFilePath = "$DiffsLocation\Differences_$(Get-Date -Format yyyyMMdd_hhmmss).csv",
-    $SMTPServer = '',
+    $SMTPServer = 'smtp.relay.com',
     $SMTPPort = 25,
     $EMailFrom = 'GPO_Monitor@Domain.com',
     $EmailTo = '',
@@ -30,9 +30,9 @@ Begin {
     
     # Get Folder to search for the backups from the last time this ran
     $LastBackUpReports = Get-ChildItem -Path "$BackUpLocation" -Directory -Recurse -Force -Depth 2 |
-        Sort-Object -Property CreationTime |
-        Where-Object -FilterScript { (Get-ChildItem $_.FullName -Force -File).Count -ge 1 } |
-        Select-Object -ExpandProperty FullName -Last 1
+    Sort-Object -Property CreationTime |
+    Where-Object -FilterScript { (Get-ChildItem $_.FullName -Force -File).Count -ge 1 } |
+    Select-Object -ExpandProperty FullName -Last 1
 
     # Create Back up location if it doesn't exist
     If (!(Test-path -path $BackUpLocation)) {
@@ -74,7 +74,7 @@ Begin {
         
         Foreach ($Setting in $New) {
             $Setting = $Current.ExtensionData.Extension.Account |
-                Where-Object { $Setting.InputObject -eq $_.Name }
+            Where-Object { $Setting.InputObject -eq $_.Name }
                 
             $Changes += @{
                 GPO      = $GPO
@@ -87,7 +87,7 @@ Begin {
         
         Foreach ($Setting in $Removed) {
             $Setting = $Previous.ExtensionData.Extension.Account |
-                Where-Object { $Setting.InputObject -eq $_.Name }
+            Where-Object { $Setting.InputObject -eq $_.Name }
                 
             $Changes += @{
                 GPO      = $GPO
@@ -99,11 +99,11 @@ Begin {
         }
 
         $CheckForChanges = $Current.ExtensionData.Extension.Account |
-            Where-Object -FilterScript { $Removed.InputObject -notcontains $_.Name -and $New.InputObject -notcontains $_.Name }
+        Where-Object -FilterScript { $Removed.InputObject -notcontains $_.Name -and $New.InputObject -notcontains $_.Name }
 
         Foreach ($CurrentSetting in $CheckForChanges) {
             $PreviousSetting = $Previous.ExtensionData.Extension.Account |
-                Where-Object -FilterScript { $_.Name -eq $CurrentSetting.Name }
+            Where-Object -FilterScript { $_.Name -eq $CurrentSetting.Name }
             
             # Perm Set
             If ($PreviousSetting.ChildNodes[1].'#text' -ne $CurrentSetting.ChildNodes[1].'#text') {
@@ -127,72 +127,119 @@ Begin {
             $Current
         )
         $Changes = @()
-        
-        $PreviousList = $Previous.GPO.SecurityDescriptor.Permissions.TrusteePermissions.Trustee.Name.InnerText
-        $CurrentList = $Current.GPO.SecurityDescriptor.Permissions.TrusteePermissions.Trustee.Name.InnerText 
-        If (![Boolean]$PreviousList) {
-            $PreviousList = ''
+        $PreviousPerms = (convertfrom-sddlstring $Previous.GPO.SecurityDescriptor.sddl.InnerText).DiscretionaryAcl | 
+        ForEach-Object -Process {
+            $Split = $_.Split(':').Split('(').TrimEnd(')').Trim()
+            $PermSetList = $Split[2].split(',').Trim()
+
+            If ($PermSetlist.Contains('Delete')) {
+                $Permission = 'Edit Settings, Delete, Modify Security'
+            }
+            ElseIf ($PermSetList.Contains('WriteKey')) {
+                $Permission = 'Edit Settings'
+            }
+            ElseIf ($PermSetList.Contains('WriteAttributes')) {
+                $Permission = 'Apply Group Policy'
+            }
+            ElseIf ($PermSetList.Contains('GenericExecute')) {
+                $Permission = 'Read'
+            }
+            Else {
+                $Permission = 'Custom'
+            }
+         
+            [PSCustomObject]@{
+                Id         = $SPlit[0].Trim()
+                Type       = $Split[1].Trim()
+                Permission = $Permission
+            }
         }
-        If (![Boolean]$CurrentList) {
-            $CurrentList = ''
+
+        $CurrentPerms = (convertfrom-sddlstring $Current.GPO.SecurityDescriptor.sddl.InnerText).DiscretionaryAcl | 
+        ForEach-Object -Process {
+            $Split = $_.Split(':').Split('(').TrimEnd(')').Trim()
+            $PermSetList = $Split[2].split(',').Trim()
+
+            If ($PermSetlist.Contains('FullControl')) {
+                $Permission = 'Edit Settings, Delete, Modify Security'
+            }
+            ElseIf ($PermSetList.Contains('WriteKey')) {
+                $Permission = 'Edit Settings'
+            }
+            ElseIf ($PermSetList.Contains('WriteAttributes')) {
+                $Permission = 'Apply Group Policy'
+            }
+            ElseIf ($PermSetList.Contains('GenericExecute')) {
+                $Permission = 'Read'
+            }
+            Else {
+                $Permission = 'Custom'
+            }
+         
+            [PSCustomObject]@{
+                Id         = $SPlit[0].Trim()
+                Type       = $Split[1].Trim()
+                Permission = $Permission
+            }
         }
+
+        If (![Boolean]$PreviousPerms) {
+            $PreviousPerms = ''
+        }
+        If (![Boolean]$CurrentPerms) {
+            $CurrentPerms = ''
+        }
+
+        $Comparison = Compare-Object $PreviousPerms $CurrentPerms -Property ID
         
-        $Comparison = Compare-Object $PreviousList $CurrentList
-        $New = $Comparison | Where-Object { $_.SideIndicator -eq "=>" -and $_.InputObject -ne '' }
-        $Removed = $Comparison | Where-Object { $_.SideIndicator -eq "<=" -and $_.InputObject -ne '' }
+        $New = $Comparison | Where-Object { $_.SideIndicator -eq "=>" -and $_.InputObject -ne '' } | Select-Object -ExpandProperty ID -Unique
+        $Removed = $Comparison | Where-Object { $_.SideIndicator -eq "<=" -and $_.InputObject -ne '' } | Select-Object -ExpandProperty ID -Unique
 
         Foreach ($Entry in $New) {
-            $ACL = $Current.GPO.SecurityDescriptor.Permissions.TrusteePermissions | 
-                Where-Object -FilterScript { $_.Trustee.Name.Innertext -eq $Entry.InputObject }
-            $Changes += @{
-                GPO      = $Current.GPO.Name
-                Change   = 'Permission Entry'
-                Previous = 'New'
-                Current  = $Entry.InputObject
-                Note     = "$($ACL.Type.PermissionType) - $($ACL.standard.GPOGroupedAccessEnum)"
+            $ACL = $CurrentPerms | 
+            Where-Object -FilterScript { $_.Id -eq $Entry }
+            Foreach ($ACE in $ACL) {
+                $Changes += @{
+                    GPO      = $Current.GPO.Name
+                    Change   = 'New Permission Entry'
+                    Previous = 'New'
+                    Current  = $ACE.Id
+                    Note     = "$($ACE.Type) - $($ACE.Permission -join ' ; ')"
+                }
             }
         }
 
         Foreach ($Entry in $Removed) {
-            $ACL = $Previous.GPO.SecurityDescriptor.Permissions.TrusteePermissions | 
-                Where-Object -FilterScript { $_.Trustee.Name.Innertext -eq $Entry.InputObject }
-            $Changes += @{
-                GPO      = $Current.GPO.Name
-                Change   = 'Permission Entry'
-                Previous = $Entry.InputObject 
-                Current  = 'Removed'
-                Note     = "$($ACL.Type.PermissionType) - $($ACL.standard.GPOGroupedAccessEnum)"
+            $ACL = $PreviousPerms | 
+            Where-Object -FilterScript { $_.Id -eq $Entry }
+            Foreach ($ACE in $ACL) {
+                $Changes += @{
+                    GPO      = $Current.GPO.Name
+                    Change   = 'Removed Permission Entry'
+                    Previous = $ACE.Id
+                    Current  = 'Removed'
+                    Note     = "$($ACE.Type) - $($ACE.Permission -join ' ; ')"
+                }
             }
         }
 
-        $CheckForChanges = $Current.GPO.SecurityDescriptor.Permissions.TrusteePermissions |
-            Where-Object -FilterScript { $Removed.InputObject -notcontains $_.Trustee.Name.Innertext -and $New.InputObject -notcontains $_.Trustee.Name.Innertext }
+        $CheckForChanges = $CurrentPerms |
+        Where-Object -FilterScript { $Removed -notcontains $_.Id -and $New -notcontains $_.Id }
 
-        Foreach ($CurrentACL in $CheckForChanges) {
-            $PreviousACL = $Previous.GPO.SecurityDescriptor.Permissions.TrusteePermissions |
-                Where-Object -FilterScript { $_.Trustee.Name.Innertext -eq $CurrentACL.Trustee.Name.Innertext }
-            # Type
-            If ($CurrentACL.Type.PermissionType -ne $PreviousACL.Type.PermissionType) {
+        Foreach ($CurrentACE in $CheckForChanges) {
+            $PreviousACE = $PreviousPerms | 
+            Where-Object -FilterScript { $_.Id -eq $CurrentACE.Id -and $_.Type -eq $CurrentACE.Type -and $_.Permission -eq $CurrentACE.Permission }
+        
+            If (![Boolean]$PreviousACE) {
+                $PreviousACE = $PreviousPerms | Where-Object -FilterScript { $_.Id -eq $CurrentACE.Id }
                 $Changes += @{
                     GPO      = $Current.GPO.Name
-                    Change   = 'Permission Type'
-                    Previous = $PreviousACL.Type.PermissionType
-                    Current  = $CurrentACL.Type.PermissionType
-                    Note     = $CurrentACL.Trustee.Name.Innertext
+                    Change   = 'Changed Permission Entry'
+                    Previous = ($PreviousAce | ForEach-Object -Process { "$($_.Type): $($_.Permission)" }) -join "`n"
+                    Current  = "$($CurrentACE.Type) - $($CurrentACE.Permission)"
+                    Note     = $CurrentACE.Id
                 }
             }
-
-            # Perm Set
-            If ($CurrentACL.standard.GPOGroupedAccessEnum -ne $PreviousACL.standard.GPOGroupedAccessEnum) {
-                $Changes += @{
-                    GPO      = $Current.GPO.Name
-                    Change   = 'Permission Set'
-                    Previous = $PreviousACL.standard.GPOGroupedAccessEnum
-                    Current  = $CurrentACL.standard.GPOGroupedAccessEnum
-                    Note     = $CurrentACL.Trustee.Name.Innertext
-                }
-            }
-            Remove-Variable PreviousACL -ErrorAction SilentlyContinue
         }
         Return $Changes
     } # END FUNCTION Compare-Permissions
@@ -219,7 +266,7 @@ Begin {
     
         Foreach ($Link in $New) {
             $Link = $Current.GPO.LinksTo | 
-                Where-Object -FilterScript { $_.SOMPath -eq $Link.InputObject }
+            Where-Object -FilterScript { $_.SOMPath -eq $Link.InputObject }
     
             $Changes += @{
                 GPO      = $Current.GPO.Name
@@ -232,7 +279,7 @@ Begin {
     
         Foreach ($Link in $Removed) {
             $Link = $Previous.GPO.LinksTo | 
-                Where-Object -FilterScript { $_.SOMPath -eq $Link.InputObject }
+            Where-Object -FilterScript { $_.SOMPath -eq $Link.InputObject }
     
             $Changes += @{
                 GPO      = $Current.GPO.Name
@@ -244,11 +291,11 @@ Begin {
         }
     
         $CheckForChanges = $Current.GPO.LinksTo |
-            Where-Object -FilterScript { $Removed.InputObject -notcontains $_.SOMPath -and $New.InputObject -notcontains $_.SOMPath }
+        Where-Object -FilterScript { $Removed.InputObject -notcontains $_.SOMPath -and $New.InputObject -notcontains $_.SOMPath }
     
         Foreach ($CurrentLink in $CheckForChanges) {
             $PreviousLink = $Previous.GPO.LinksTo |
-                Where-Object -FilterScript { $_.SOMPath -eq $CurrentLink.SOMPath }
+            Where-Object -FilterScript { $_.SOMPath -eq $CurrentLink.SOMPath }
     
             # Enabled Status
             If ($PreviousLink.Enabled -ne $CurrentLink.Enabled) {
@@ -291,11 +338,11 @@ Begin {
         }
 
         #Owner
-        if ($Previous.gpo.SecurityDescriptor.Owner.Sid.InnerText -ne $Current.gpo.SecurityDescriptor.Owner.Sid.InnerText) {
+        If ($Previous.gpo.SecurityDescriptor.Owner.Sid.InnerText -ne $Current.gpo.SecurityDescriptor.Owner.Sid.InnerText) {
             $PreviousResult = If ([Boolean]$Previous.gpo.SecurityDescriptor.Owner.Name.InnerText) { $Previous.gpo.SecurityDescriptor.Owner.Name.InnerText } 
-                Else { $Previous.gpo.SecurityDescriptor.Owner.Sid.InnerText }
+            Else { $Previous.gpo.SecurityDescriptor.Owner.Sid.InnerText }
             $CurrentResult = If ([Boolean]$Current.gpo.SecurityDescriptor.Owner.Name.InnerText) { $Current.gpo.SecurityDescriptor.Owner.Name.InnerText } 
-                Else { $Current.gpo.SecurityDescriptor.Owner.Sid.InnerText }
+            Else { $Current.gpo.SecurityDescriptor.Owner.Sid.InnerText }
 
             $Changes += @{
                 GPO      = $Current.GPO.Name
@@ -361,15 +408,37 @@ Begin {
         Param($GPO)
         $ComputerSettings = Get-AllChildren -Root $GPO.gpo.Computer.ExtensionData.Extension
         $UserSettings = Get-AllChildren -Root $GPO.gpo.User.ExtensionData.Extension
-        $Permissions = Foreach ($ACE in $GPO.GPO.SecurityDescriptor.Permissions.TrusteePermissions) {
-            "$($ACE.Type.PermissionType) - $($ACE.Trustee.Name.'#text') - $($ACE.Standard.GPOGroupedAccessEnum)"
+        $Permissions = (convertfrom-sddlstring $GPO.GPO.SecurityDescriptor.sddl.InnerText).DiscretionaryAcl | 
+        ForEach-Object -Process {
+            $Split = $_.Split(':').Split('(').TrimEnd(')').Trim()
+            $PermSetList = $Split[2].split(',').Trim()
+
+            If ($PermSetlist.Contains('FullControl')) {
+                $Permission = 'Edit Settings, Delete, Modify Security'
+            }
+            ElseIf ($PermSetList.Contains('WriteKey')) {
+                $Permission = 'Edit Settings'
+            }
+            ElseIf ($PermSetList.Contains('WriteAttributes')) {
+                $Permission = 'Apply Group Policy'
+            }
+            ElseIf ($PermSetList.Contains('GenericExecute')) {
+                $Permission = 'Read'
+            }
+            Else {
+                $Permission = 'Custom'
+            }
+         
+            "$($Split[1].Trim()): $($SPlit[0].Trim()): $Permission"
         }
+        
+
         $Links = Foreach ($Link in $GPO.GPO.LinksTo) {
             "$($Link.SOMPath) - Enabled: $($Link.Enabled) - Enforced: $($Link.NoOverride)"
         }
-        $General = "Computer Enabled: $($GPO.GPO.Computer.Enabled)`nUser Enabled: $($GPO.GPO.User.Enabled)`n`nWMI Filter: $($GPO.GPO.FilterName)"
+        $General = "Computer Settings Enabled: $($GPO.GPO.Computer.Enabled)`nUser Settings Enabled: $($GPO.GPO.User.Enabled)`n`nWMI Filter: $($GPO.GPO.FilterName)"
 
-        Return "Name: $($GPO.GPO.Name)`n`nLinks: `n$($Links -join "`n") `n`n$General `n`nUser Settings: `n$($UserSettings -join "`n") `n`nComputer Settings: `n$($ComputerSettings -join "`n") `n`nPermissions: `n$($Permissions -join "`n")"
+        Return "Name: $($GPO.GPO.Name)`n`nLinks: `n$($Links -join "`n") `n`n$General `n`nUser Settings:`n$($UserSettings -join "`n") `n`nComputer Settings: `n$($ComputerSettings -join "`n") `n`nPermissions: `n$($Permissions -join "`n")"
     } # END FUNCTION Get-GPOSummary
 
     #endregion Functions
@@ -403,7 +472,7 @@ Process {
     
     # Get List of Changed GPOs
     $CheckForChanges = $CurrentGPOs |
-        Where-Object -FilterScript { $RemovedGPOs.InputObject -notcontains $_.ID.GUID -and $NewGPOs.InputObject -notcontains $_.ID.GUID }
+    Where-Object -FilterScript { $RemovedGPOs.InputObject -notcontains $_.ID.GUID -and $NewGPOs.InputObject -notcontains $_.ID.GUID }
     
     If (![Boolean]$LastBackUpList) {
         # Backup Current GPOs Sysvol Folders
@@ -470,14 +539,29 @@ Process {
     # Export Information
     If ([Boolean]$ExportInformation) {
         $ExportInformation | 
-            ForEach-Object -Process { [PSCustomObject]$_ } |
-            Select-Object -Property GPO, Change, Previous, Current, Note |
-            Export-Csv -Path $DiffsFilePath -NoTypeInformation -Force
+        ForEach-Object -Process { [PSCustomObject]$_ } |
+        Select-Object -Property GPO, Change, Previous, Current, Note |
+        Export-Csv -Path $DiffsFilePath -NoTypeInformation -Force
         
+        $MailBody = "<$DiffsFilePath>`n`n"
+        $MailBody += ($ExportInformation | 
+            ForEach-Object -Process { [PSCustomObject]$_ } |
+            Group-Object -Property GPO | 
+            Sort-Object -Property Name |
+            ForEach-Object -Process {
+                "`n`n$($_.Name)"
+                $_.Group | ForEach-Object -Process {
+                    "`t$($_.Change)`n`t`tPrevious: $($_.Previous)`n`t`tCurrent: $($_.Current)`n`t`tNote: $($_.Note.Split("`n") -join "`n`t`t")"
+                }
+            }) -join "`n"
+
         If ([Boolean]$EmailTo) {
             Send-MailMessage -From $EMailFrom -To $EmailTo `
                 -SmtpServer $SMTPServer -Port $SMTPPort `
-                -Subject $EMailSubject -Body "<$DiffsFilePath>" -Attachments $DiffsFilePath
+                -Subject $EMailSubject -Body $MailBody -Attachments $DiffsFilePath
         }
+    }
+    Else {
+        Remove-Item -Path $BackUpReportPath -Recurse -Force
     }
 }

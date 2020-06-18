@@ -1,17 +1,14 @@
 ﻿<#
     Created By: Kyle Hewitt
     Created On: 06/25/2019
-    Last Edit: 06/26/2019
-    Version: 1.0.0
+    Version: 2019.06.26
 
     Purpose: This script is to retrieve information about a forest and all of it's domains.
-
-    Notes:
 #>
 
 $Date = Get-Date -Format yyyyMMdd
 
-$ExportRoot = "$ENV:userprofile\Desktop\DomainCheck_$Date".Replace(':','$')
+$ExportRoot = "$ENV:userprofile\Desktop\DomainCheck_$Date".Replace(':', '$')
 
 #region Setup
 
@@ -19,8 +16,7 @@ $Global:MailBody = $()
 
 $Forest = [DirectoryServices.ActiveDirectory.Forest]::GetCurrentForest()
 
-If ($ExportRoot -notlike "\\*")
-{
+If ($ExportRoot -notlike "\\*") {
     $ExportRoot = "\\$ENV:ComputerName\$($ExportRoot.Replace(':','$'))"
 }
 [Void] (New-Item -Path $ExportRoot -ItemType Directory -Force)
@@ -33,34 +29,29 @@ If ($ExportRoot -notlike "\\*")
 
 #region Functions
 
-Function SendOut 
-{
+Function SendOut {
     Param(
         $Info,
         $Title, 
         $FileType = "csv"
     )
     $Path = "$ExportRoot\$Domain`_$Title`_$Date.$FileType"
-    If ($FileType -eq 'csv')
-    {
+    If ($FileType -eq 'csv') {
         $Info | Export-Csv -Path $Path -NoTypeInformation -Force
     }
-    Else
-    {
+    Else {
         Set-Content -Value $Info -Path $Path -Force
     }
 }
 
-Function Get-RegValue ($Computer,$BaseKey='LocalMachine',$Key,$Value)
-{
+Function Get-RegValue ($Computer, $BaseKey = 'LocalMachine', $Key, $Value) {
     Return (([Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey($BaseKey, $Computer)).OpenSubKey($Key)).GetValue($Value)
 }
 
 #endregion Functions
 
 
-:Domains Foreach ($Domain in $Forest.Domains)
-{
+:Domains Foreach ($Domain in $Forest.Domains) {
     write-host Domain: $Domain
 
     #Dit Location and Size
@@ -77,14 +68,14 @@ Function Get-RegValue ($Computer,$BaseKey='LocalMachine',$Key,$Value)
 
     SendOut -Title DomainInfo -Info $(
         New-Object -TypeName PSObject -Property @{
-            Forest = $Forest.Name
-            Domain = $Domain.Name
-            DomainMode = $Domain.DomainMode
-            DomainControllerCount = $Domain.DomainControllers.Count
-            DitSize = $DitSize
-            tombstonelifetime = $($DSCN.tombstonelifetime)
+            Forest                       = $Forest.Name
+            Domain                       = $Domain.Name
+            DomainMode                   = $Domain.DomainMode
+            DomainControllerCount        = $Domain.DomainControllers.Count
+            DitSize                      = $DitSize
+            tombstonelifetime            = $($DSCN.tombstonelifetime)
             "msds-deletedobjectlifetime" = $($DSCN.'msds-deletedobjectlifetime')
-            dsheuristics = $($DSCN.dsheuristics)
+            dsheuristics                 = $($DSCN.dsheuristics)
         } | Select-Object -Property Forest, Domain, DomainMode, DomainControllerCount, DitSize, tombstonelifetime, msds-deletedobjectlifetime, dsheuristics
     )
 
@@ -98,7 +89,7 @@ Function Get-RegValue ($Computer,$BaseKey='LocalMachine',$Key,$Value)
 
     SendOut -Title SiteLinks -Info @(
         $Forest.Sites | Select-Object -ExpandProperty SiteLinks | 
-            Select-Object -Property Name, @{name="Sites";Expression={$_.Sites -join ', '}}, Cost, ReplicationInterval, NotificationEnabled, DataCompressionEnabled
+        Select-Object -Property Name, @{name = "Sites"; Expression = { $_.Sites -join ', ' } }, Cost, ReplicationInterval, NotificationEnabled, DataCompressionEnabled
     )
 
     Write-Host [$(Get-Date)] Getting Info on Sites
@@ -111,8 +102,7 @@ Function Get-RegValue ($Computer,$BaseKey='LocalMachine',$Key,$Value)
 
     $WMISearcher = New-Object -TypeName System.Management.ManagementObjectSearcher
     SendOut -Title DomainControllers -Info $(
-        Foreach ($DC in $Domain.DomainControllers)
-        {
+        Foreach ($DC in $Domain.DomainControllers) {
             $WMISearcher.Scope = "\\$($DC.Name)\root\cimv2"
 
             $WMISearcher.Query = "SELECT * FROM WIN32_ComputerSystem"
@@ -124,24 +114,23 @@ Function Get-RegValue ($Computer,$BaseKey='LocalMachine',$Key,$Value)
             $WMISearcher.Query = "SELECT * FROM Win32_LogicalDisk"
             $LogicalDisk = $WMISearcher.Get()
 
-            $RAM = [Math]::Round(($ComputerSystem | Select-Object -ExpandProperty TotalPhysicalMemory)/1gb,0)
+            $RAM = [Math]::Round(($ComputerSystem | Select-Object -ExpandProperty TotalPhysicalMemory) / 1gb, 0)
             $LogicalProcessors = $ComputerSystem | Select-Object -ExpandProperty NumberOfLogicalProcessors
             $CPUSpeed = ($PROCESSOR | Select-Object -ExpandProperty CurrentClockSpeed) -join ', '
             $Storage = ($LogicalDisk | ForEach-Object -Process { 
-                If ($_.DriveType -eq 3) 
-                { 
-                    "$($_.DeviceID) $([Math]::Round($_.FreeSpace/1gb,2)) GB / $([Math]::Round($_.Size/1gb,2)) GB" 
-                }
-            }) -join ', '
+                    If ($_.DriveType -eq 3) { 
+                        "$($_.DeviceID) $([Math]::Round($_.FreeSpace/1gb,2)) GB / $([Math]::Round($_.Size/1gb,2)) GB" 
+                    }
+                }) -join ', '
 
             New-Object -TypeName PSObject -Property @{
-                Name = $DC.name
-                OS = $DC.OSVersion
-                RAM = $RAM
+                Name              = $DC.name
+                OS                = $DC.OSVersion
+                RAM               = $RAM
                 LogicalProcessors = $LogicalProcessors
-                CPUSpeed = $CPUSpeed
-                Storage = $Storage
-                DitSize = "$((Get-Item -Path "\\$($DC.Name)\$($(Get-RegValue -Computer $($DC.Name) -Key 'SYSTEM\\CurrentControlSet\\Services\\NTDS\\Parameters' -Value 'DSA Database file').Replace(':','$'))").Length/1GB) GB"
+                CPUSpeed          = $CPUSpeed
+                Storage           = $Storage
+                DitSize           = "$((Get-Item -Path "\\$($DC.Name)\$($(Get-RegValue -Computer $($DC.Name) -Key 'SYSTEM\\CurrentControlSet\\Services\\NTDS\\Parameters' -Value 'DSA Database file').Replace(':','$'))").Length/1GB) GB"
             } | Select-Object -Property Name, OS, RAM, LogicalProcessors, CPUSpeed, Storage, DitSize
 
             Remove-Variable LogicalDisk, ComputerSystem, PROCESSOR, RAM, NumberOfCPUCores, CPUSpeed, Storage -ErrorAction SilentlyContinue
@@ -162,18 +151,18 @@ Function Get-RegValue ($Computer,$BaseKey='LocalMachine',$Key,$Value)
 
     SendOut -Title ObjectCounts -Info $(
         $($ADSearcher.FindAll() | ForEach-Object -Process { $_.Properties } | 
-            Select-Object -Property @{ n='name'; e={ $_.name } }, 
-                   @{ n='objectclass'; e={ $_.objectclass -join ',' } },
-                   @{ n='Disabled'; e={ ([Convert]::ToString($_.useraccountcontrol[0],2)[-2] -eq '1') } },
-                   @{ n='deleted'; e={ $_.isdeleted } },
-                   @{ n='recycled'; e={ $_.isrecycled } } |
+            Select-Object -Property @{ n = 'name'; e = { $_.name } }, 
+            @{ n = 'objectclass'; e = { $_.objectclass -join ',' } },
+            @{ n = 'Disabled'; e = { ([Convert]::ToString($_.useraccountcontrol[0], 2)[-2] -eq '1') } },
+            @{ n = 'deleted'; e = { $_.isdeleted } },
+            @{ n = 'recycled'; e = { $_.isrecycled } } |
             Group-Object -Property objectclass | 
             Foreach-Object -Process {
                 New-Object -TypeName PSObject -Property @{
-                    Class = $_.Name
-                    Count = $_.Count
+                    Class    = $_.Name
+                    Count    = $_.Count
                     Disabled = ($_.Group | Group-Object -Property Disabled | Where-Object -FilterScript { $_.Name -eq 'True' }).Count
-                    Deleted = ($_.Group | Group-Object -Property deleted | Where-Object -FilterScript { $_.Name -eq 'True' }).Count
+                    Deleted  = ($_.Group | Group-Object -Property deleted | Where-Object -FilterScript { $_.Name -eq 'True' }).Count
                     Recycled = ($_.Group | Group-Object -Property recycled | Where-Object -FilterScript { $_.Name -eq 'True' }).Count
                 }
             } | 

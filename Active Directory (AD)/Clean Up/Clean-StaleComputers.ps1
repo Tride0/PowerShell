@@ -21,8 +21,8 @@ $120Days = [DateTime]::Now.AddDays(-120)
 
 # Filters
 $DisableFilter = { (Enabled -eq $true) -and (PasswordLastSet -lt $90Days) -and (LastLogonDate -lt $90Days) -and 
-        (WhenCreated -lt $90Days) -and (WhenChanged -lt $90Days) -and
-        (OperatingSystem -like 'Windows*') -and (OperatingSystem -notlike '*Server*') -and (OperatingSystem -notlike 'Windows NT*') }
+    (WhenCreated -lt $90Days) -and (WhenChanged -lt $90Days) -and
+    (OperatingSystem -like 'Windows*') -and (OperatingSystem -notlike '*Server*') -and (OperatingSystem -notlike 'Windows NT*') }
 
 $DeleteFilter = { (Enabled -eq $false) -and (PasswordLastSet -lt $120Days) -and (LastLogonDate -lt $90Days) -and 
     (WhenCreated -lt $120Days) -and (WhenChanged -lt $120Days) -and
@@ -33,20 +33,18 @@ $DataProperties = 'OperatingSystem', 'LastLogonDate', 'WhenCreated', 'WhenChange
 $ExportDataProperties = 'Name', 'OperatingSystem', 'DistinguishedName', 'PasswordLastSet', 'LastLogonDate', 'WhenCreated', 'WhenChanged'
 
 # Begin Script
-ForEach ($Task in 'Disable', 'Delete')
-{
+ForEach ($Task in 'Disable', 'Delete') {
     # Gets Values for task being performed
-    $Filter  = "$((Get-Variable -Name $Task`Filter).Value)"
+    $Filter = "$((Get-Variable -Name $Task`Filter).Value)"
     $LogPath = "$((Get-Variable -Name $Task`LogPath).Value)"
     
     # Gets Computers to perform task on
     $Computers = Get-ADComputer -Filter $Filter -Properties $DataProperties
     
     # Performs Task
-    Switch ($Task)
-    {
+    Switch ($Task) {
         'Disable' { Set-ADComputer -Identity $Computer -Enabled $False -Add @{ Description = "Disabled by Clean-StaleComputers script on $(Get-Date)." } -confirm:$False }
-        'Delete'  { Remove-ADComputer -Identity $Computer -confirm:$False }
+        'Delete' { Remove-ADComputer -Identity $Computer -confirm:$False }
     }
     
     # Exports Computers that a task was performed on

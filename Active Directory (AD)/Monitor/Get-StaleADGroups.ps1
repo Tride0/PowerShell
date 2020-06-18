@@ -1,6 +1,7 @@
 ﻿<#
     Created By: Kyle Hewitt
     Created On: 10/03/2018
+    Version: 2018.10.03
 #>
 
 $ExportPath = "$PSScriptRoot\AD_Group_Usage.csv"
@@ -18,8 +19,8 @@ $SelectProperties = 'Name', 'DistinguishedName', 'WhenCreated', 'WhenChanged', '
 $SortProperty = 'WhenChanged'
 
 Get-ADGroup -Properties $ADProperties -Filter $ADFilter |
-    Where-Object -FilterScript $WhereFilter |
-    Select-Object -Property $SelectProperties | 
-    Sort-Object -Property $SortProperty |
-    Export-csv -Path $ExportPath -NoTypeInformation -Force
+Where-Object -FilterScript $WhereFilter |
+Select-Object -Property $SelectProperties | 
+Sort-Object -Property $SortProperty |
+Export-csv -Path $ExportPath -NoTypeInformation -Force
 

@@ -1,5 +1,4 @@
-﻿Function Get-RegValue
-{
+﻿Function Get-RegValue {
     <#
         .NOTES
             Created By: Kyle Hewitt

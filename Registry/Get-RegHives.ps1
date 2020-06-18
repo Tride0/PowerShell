@@ -1,5 +1,4 @@
-﻿Function Get-RegHives
-{
+﻿Function Get-RegHives {
     <#
         .NOTES
             Created By: Kyle Hewitt

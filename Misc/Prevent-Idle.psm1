@@ -1,5 +1,4 @@
-Function Prevent-Idle
-{
+Function Prevent-Idle {
     <#
         .NOTES
             Created By: Kyle Hewitt
@@ -12,14 +11,11 @@ Function Prevent-Idle
         $SendKey = "SCROLLLOCK",
         $IntervalSeconds = 600
     )
-    Begin
-    {
+    Begin {
         $ObjShell = New-Object -ComObject wscript.shell
     }
-    Process
-    {
-        While ($TRUE)
-        {
+    Process {
+        While ($TRUE) {
             $ObjShell.SendKeys("{$SendKey}")
             Write-Host "[$(Get-Date)] $SendKey'd. Waiting $IntervalSeconds seconds." -ForegroundColor Cyan
             Start-Sleep -Seconds $IntervalSeconds

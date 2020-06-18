@@ -1,8 +1,7 @@
-Function Validate-Credential
-{
+Function Validate-Credential {
     Param(
         $UserName = $ENV:UserName,
-        [Parameter(Mandatory=$True)]$Password,
+        [Parameter(Mandatory = $True)]$Password,
         $Server = [System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain().Name
     )
 
@@ -10,7 +9,7 @@ Function Validate-Credential
     Add-Type -AssemblyName System.DirectoryServices.AccountManagement
 
     # Create AD and Principal contexts
-    $PrincipalContext = New-Object System.DirectoryServices.AccountManagement.PrincipalContext 'Domain',$Server
+    $PrincipalContext = New-Object System.DirectoryServices.AccountManagement.PrincipalContext 'Domain', $Server
 
     # Validate our creds
     $AuthResult = $PrincipalContext.ValidateCredentials(

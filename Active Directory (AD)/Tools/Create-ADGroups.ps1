@@ -5,7 +5,7 @@
         .NOTES
             Created By: Kyle Hewitt
             Created On: 2020/05/08
-            Version: 2020.05.11
+            Version: 2020.06.01
     #>
     Param(
         [String] $CSVPath = "$PSScriptRoot\Create_ADGroups.csv",
@@ -97,7 +97,7 @@
                 GroupScope    = 'DomainLocal, Global, Universal'
                 GroupCategory = 'Security, Distribution' 
             } | 
-            Select-Object -Property 'GroupScope', 'GroupCategory', 'Name', 'Path' |
+            Select-Object -Property 'GroupScope', 'GroupCategory', 'Name', 'Path', 'Server', 'RunAsUserName', 'RunAsPassword' |
             Export-Csv -Path $CSVPath -NoTypeInformation -Force
             
             Write-Host "New-ADGroup Parameters:`n$(($NewADGroupAvailableParameters | Sort-Object) -join "`n")"
@@ -144,15 +144,23 @@
         # Go through each entry in the CSV file and create the Groups
         :CSVInfoForEach Foreach ($Entry in $CSVInfo) {
             Remove-Variable NewADGroupParameters, Domain, DomainContext, DomainObject -ErrorAction SilentlyContinue
+            $NewADGroupParameters = [System.Collections.Specialized.OrderedDictionary]@{ }
 
             If (![Boolean]$Entry.Name) {
-                Add-ToFailureLog -Info $Entry -Note "$Domain not found"
-                Add-ToLog -Value "$Domain not found. Skipping."
+                Add-ToFailureLog -Info $Entry -Note "Name not provided. Skipped."
+                Add-ToLog -Value "Name not provided. Skipping."
                 Continue CSVInfoForEach
             }
 
+            # If both UserName and Password were provided for this entry use those credentials to perform the actions
+            If ([Boolean]$Entry.RunAsPassword -and [Boolean]$Entry.RunAsUserName) {
+                $NewADGroupParameters.Credential = New-Object -TypeName System.Management.Automation.PSCredential (
+                    $Entry.RunAsUserName,
+                    (ConvertTo-SecureString -String ($Entry.RunAsPassword) -AsPlainText -Force)
+                )
+            }
+
             # Create hashtables to splat onto the cmdlets
-            $NewADGroupParameters = [System.Collections.Specialized.OrderedDictionary]@{ }
             :AttributeNamesForEach Foreach ($Attribute in $AttributeNames) {
                 If (![Boolean]$Entry.$Attribute) { Continue AttributeNamesForEach }
                 
@@ -227,6 +235,7 @@
                 }
                 $ErrorActionPreference = 'Continue'
             }
+
             If (![Boolean]$NewADGroupParameters.Server) {
                 Add-ToFailureLog -Info $NewADGroupParameters -Note 'Domain Controller not found.'
                 Add-ToLog -Value 'Domain Controller not found. Skipping.'

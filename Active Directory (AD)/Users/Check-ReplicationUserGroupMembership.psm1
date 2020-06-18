@@ -1,33 +1,30 @@
-﻿Function Check-ReplicationUserGroupMemberships
-{
+﻿Function Check-ReplicationUserGroupMemberships {
+    #Requires -Module ActiveDirectory
     <#
         .NOTES
             Created By: Kyle Hewitt
             Created On: 5/05/20
+            Version: 2020.05.26
 
         .DESCRIPTION
-        Th
+            This function looks at all domain controllers to check if the user group membership is on all of them.
     #>
     [cmdletbinding()]
     Param(
-        $DCs = (Get-ADDomainController -Filter *).Name,
-        $User,
-        $Group
+        [String[]]$DCs = (Get-ADDomainController -Filter *).Name,
+        [String]$User,
+        [String]$Group
     )
-    Begin
-    {
+    Begin {
         Import-Module ActiveDirectory -ErrorAction Stop
         $Group = (Get-ADGroup -Identity $Group -ErrorAction Stop).distinguishedname
-        $Results = @()
     }
-    Process
-    {
-        Foreach ($DC in $DCs)
-        {
+    Process {
+        Foreach ($DC in $DCs) {
             $UserAccount = Get-ADUser -Identity $User -Properties memberof -Server $DC
         
             [PSCustomObject]@{
-                DC = $DC
+                DC     = $DC
                 Result = $UserAccount.memberof.contains($Group)
             }
 

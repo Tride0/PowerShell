@@ -1,5 +1,4 @@
-﻿Function Generate-RandomPassword
-{
+﻿Function Generate-RandomPassword {
     <#
         .DESCRIPTION
             Generates a random password based on a character set
