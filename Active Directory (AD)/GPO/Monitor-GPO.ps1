@@ -2,7 +2,7 @@
     .NOTES
         Created By: Kyle Hewitt
         Created On: 05-18-2020
-        Version: 2020.06.10
+        Version: 2020.06.23
 
     .DESCRIPTION
         Script will backup and notify of changes since previous backup
@@ -14,7 +14,7 @@ Param(
     $SMTPServer = 'smtp.relay.com',
     $SMTPPort = 25,
     $EMailFrom = 'GPO_Monitor@Domain.com',
-    $EmailTo = '',
+    $EmailTo = 'your@email.com',
     $EMailSubject = "GPO Monitor $(Get-Date -Format yyyyMMdd)"
 )
 Begin {
@@ -160,7 +160,7 @@ Begin {
             $Split = $_.Split(':').Split('(').TrimEnd(')').Trim()
             $PermSetList = $Split[2].split(',').Trim()
 
-            If ($PermSetlist.Contains('FullControl')) {
+            If ($PermSetlist.Contains('Delete')) {
                 $Permission = 'Edit Settings, Delete, Modify Security'
             }
             ElseIf ($PermSetList.Contains('WriteKey')) {
@@ -551,7 +551,13 @@ Process {
             ForEach-Object -Process {
                 "`n`n$($_.Name)"
                 $_.Group | ForEach-Object -Process {
-                    "`t$($_.Change)`n`t`tPrevious: $($_.Previous)`n`t`tCurrent: $($_.Current)`n`t`tNote: $($_.Note.Split("`n") -join "`n`t`t")"
+                    If ([Bool]$_.Note) {
+                        $Note = $($_.Note.Split("`n") -join "`n`t`t")
+                    }
+                    
+                    "`t$($_.Change)`n`t`tPrevious: $($_.Previous)`n`t`tCurrent: $($_.Current)`n`t`tNote: $Note"
+                    
+                    Remove-Variable note -ErrorAction SilentlyContinue
                 }
             }) -join "`n"
 
@@ -560,8 +566,18 @@ Process {
                 -SmtpServer $SMTPServer -Port $SMTPPort `
                 -Subject $EMailSubject -Body $MailBody -Attachments $DiffsFilePath
         }
+
+        $OldBackUpReports = Get-ChildItem -Path "$BackUpLocation" -Directory -Recurse -Force -Depth 2 |
+        Where-Object { $_.FullName -ne $DiffsLocation -and $_.FullName -like "$BackupLocation\*\*\*" } |
+        Sort-Object -Property CreationTime
+        
+        If ($OldBackUpReports.Count -gt 1) {
+            $OldBackUpReports |
+            Select-Object -ExpandProperty FullName -First 1 | 
+            Remove-Item -Recurse -Force
+        }
     }
-    Else {
+    ElseIf ([Boolean]$LastBackUpList) {
         Remove-Item -Path $BackUpReportPath -Recurse -Force
     }
 }

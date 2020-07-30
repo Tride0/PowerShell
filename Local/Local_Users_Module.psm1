@@ -1,4 +1,4 @@
-﻿Function Get-LocalUsers {
+﻿Function Get-LocalUser {
     [cmdletbinding()]
     [Alias('glu', 'get-localu', 'get-lu')]
     Param(
@@ -21,9 +21,9 @@
 }
 
 
-Function Reset-LocalPassword {
+Function Reset-LocalUserPassword {
     [cmdletbinding()]
-    [Alias('rlpw', 'reset-localpw', 'reset-lpw')]
+    [Alias('rlupw', 'reset-localupw', 'reset-lupw')]
     Param(
         [String] $ComputerName = $env:COMPUTERNAME,
         [Parameter(Mandatory)]
@@ -107,7 +107,7 @@ Function Rename-LocalUser {
 }
 
 
-Function Delete-LocalUser {
+Function Remove-LocalUser {
     [cmdletbinding()]
     [Alias('dlu', 'delete-localu', 'delete-lu')]
     Param(

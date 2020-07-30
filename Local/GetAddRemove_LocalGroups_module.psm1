@@ -1,14 +1,13 @@
 ﻿Function Get-LocalGroupMember {
-
     <#
-    .NOTES
-        Created By: Kyle Hewitt
-        Created On: 12/23/19
-        Last Edit: 12/23/19
-        Version: 1.0.0
+        .NOTES
+            Created By: Kyle Hewitt
+            Created On: 12/23/19
+            Last Edit: 12/23/19
+            Version: 1.0.0
 
-    .DESCRIPTION
-#>
+        .DESCRIPTION
+    #>
     [cmdletbinding()]
     [Alias('glgm', 'get-localgm', 'get-lgm')]
     Param(
@@ -46,16 +45,15 @@
 }
 
 Function Add-LocalGroupMember {
-
     <#
-    .NOTES
-        Created By: Kyle Hewitt
-        Created On: 12/23/19
-        Last Edit: 12/23/19
-        Version: 1.0.0
+        .NOTES
+            Created By: Kyle Hewitt
+            Created On: 12/23/19
+            Last Edit: 12/23/19
+            Version: 1.0.0
 
-    .DESCRIPTION
-#>
+        .DESCRIPTION
+    #>
     [cmdletbinding()]
     [Alias('algm', 'add-localgm', 'add-lgm')]
     Param(
@@ -73,16 +71,15 @@ Function Add-LocalGroupMember {
 }
 
 Function Remove-LocalGroupMember {
-
     <#
-    .NOTES
-        Created By: Kyle Hewitt
-        Created On: 12/23/19
-        Last Edit: 12/23/19
-        Version: 1.0.0
+        .NOTES
+            Created By: Kyle Hewitt
+            Created On: 12/23/19
+            Last Edit: 12/23/19
+            Version: 1.0.0
 
-    .DESCRIPTION
-#>
+        .DESCRIPTION
+    #>
     [cmdletbinding()]
     [Alias('rlgm', 'remove-localgm', 'remove-lgm')]
     Param(
