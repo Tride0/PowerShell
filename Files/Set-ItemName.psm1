@@ -1,9 +1,9 @@
-Function Name-Item {
+Function Set-ItemName {
     <#
         .NOTES
             Created By: Kyle Hewitt
             Created On: 07-06-2020
-            Version: 2020.07.06
+            Version: 2020.08.17
             
             I'm open to a new name for this function.
 
@@ -21,7 +21,9 @@ Function Name-Item {
         [String]$ReplaceWith,
         [String]$Remove,
         [String]$Prefix,
-        [String]$Suffix
+        [String]$Suffix,
+        [String]$Extension,
+        [Boolean]$AddAnyway = $False
     )
     Process {
         # Build Parameters for Get-ChildItem
@@ -64,23 +66,45 @@ Function Name-Item {
                     Continue Item
                 }
 
-                $NewName = $Item.Name
+                $NewName = $Item.BaseName
 
                 If ([Boolean]$Replace -and [Boolean]$ReplaceWith) {
                     $NewName = $NewName.Replace($Replace,$ReplaceWith)
                 }
+                
                 If ([Boolean]$Remove) {
                     $NewName = $NewName.Replace($Remove,'')
                 }
-                If ([Boolean]$Prefix -or [Boolean]$Suffix) {
-                    $NewName = $Prefix + $NewName + $Suffix
-                }
 
-                Try {
-                    Rename-Item -Path $Item.FullName -NewName $NewName -Force -ErrorAction Stop
+                If ([Boolean]$Prefix -or [Boolean]$Suffix) {
+                    If ($AddAnyway -or $NewName -notlike "$Prefix*") {
+                        $NewName = $Prefix + $NewName
+                    }
+                    If ($AddAnyway -or $NewName -notlike "*$Suffix") {
+                        $NewName = $NewName + $Suffix
+                    }
                 }
-                Catch {
-                    Write-Host "Failed to rename $($Item.FullName). Error: $_" -ForegroundColor Red
+                
+                If ([Boolean]$Extension) {
+                    If ($Extension -notlike ".*") {
+                        $Extension = ".$Extension"
+                    }
+                    $NewName = $NewName + $Exntesion
+                }
+                ElseIf ([Boolean]$Item.Extension) {
+                    $NewName = $NewName + $Item.Extension
+                }
+                
+                If ($NewName -eq $Item.Name) {
+                    Write-Warning "Didn't rename '$($Item.Fullname)'. Reason: No change to name."
+                }
+                Else {
+                    Try {
+                        Rename-Item -Path $Item.FullName -NewName $NewName -Force -ErrorAction Stop
+                    }
+                    Catch {
+                        Write-Error "Failed to rename '$($Item.FullName)'. Error: $_"
+                    }
                 }
             }
         }
