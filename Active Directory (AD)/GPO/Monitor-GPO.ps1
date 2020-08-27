@@ -2,7 +2,7 @@
     .NOTES
         Created By: Kyle Hewitt
         Created On: 05-18-2020
-        Version: 2020.06.23
+        Version: 2020.08.27
 
     .DESCRIPTION
         Script will backup and notify of changes since previous backup
@@ -53,71 +53,118 @@ Begin {
     Function Compare-Settings {
         Param(
             $Previous,
-            $Current,
-            $GPO
+            $Current
         )
         $Changes = @()
 
-        $PreviousList = $Previous.ExtensionData.Extension.Account.Name
-        $CurrentList = $Current.ExtensionData.Extension.Account.Name 
-        If (![Boolean]$PreviousList) {
-            $PreviousList = ''
-        }
-        If (![Boolean]$CurrentList) {
-            $CurrentList = ''
-        }
-        
-        $Comparison = Compare-Object $PreviousList $CurrentList
-        $New = $Comparison | Where-Object { $_.SideIndicator -eq "=>" -and $_.InputObject -ne '' }
-        $Removed = $Comparison | Where-Object { $_.SideIndicator -eq "<=" -and $_.InputObject -ne '' }
+        $PreviousList = Get-GPOSettingSummary -GPO $Previous
+        $CurrentList = Get-GPOSettingSummary -GPO $Current
 
-        
-        Foreach ($Setting in $New) {
-            $Setting = $Current.ExtensionData.Extension.Account |
-            Where-Object { $Setting.InputObject -eq $_.Name }
-                
-            $Changes += @{
-                GPO      = $GPO
-                Change   = 'Setting Added'
-                Previous = 'New'
-                Current  = $Setting.ChildNodes[0].'#text'
-                Note     = $Setting.ChildNodes[1].'#text'
+        # Removed or Changed
+        :PreviousList Foreach ($PrevItem in $PreviousList) {
+            # Create Filterscript to Search if the Exact Setting is present
+            $FilterScript = @()
+            Foreach ($Key in $PrevItem.Keys) {
+                $FilterScript += "`$_.'$Key' -eq `$PrevItem.'$Key'"
             }
-        }
-        
-        Foreach ($Setting in $Removed) {
-            $Setting = $Previous.ExtensionData.Extension.Account |
-            Where-Object { $Setting.InputObject -eq $_.Name }
-                
-            $Changes += @{
-                GPO      = $GPO
-                Change   = 'Setting Removed'
-                Previous = $Setting.ChildNodes[0].'#text'
-                Current  = 'Removed'
-                Note     = $Setting.ChildNodes[1].'#text'
-            }
-        }
-
-        $CheckForChanges = $Current.ExtensionData.Extension.Account |
-        Where-Object -FilterScript { $Removed.InputObject -notcontains $_.Name -and $New.InputObject -notcontains $_.Name }
-
-        Foreach ($CurrentSetting in $CheckForChanges) {
-            $PreviousSetting = $Previous.ExtensionData.Extension.Account |
-            Where-Object -FilterScript { $_.Name -eq $CurrentSetting.Name }
+            $FilterScript = [scriptblock]::Create($FilterScript -join ' -and ')
             
-            # Perm Set
-            If ($PreviousSetting.ChildNodes[1].'#text' -ne $CurrentSetting.ChildNodes[1].'#text') {
-                $Changes += @{
-                    GPO      = $GPO
-                    Change   = 'Setting Value Changed'
-                    Previous = $PreviousSetting.ChildNodes[1].'#text'
-                    Current  = $CurrentSetting.ChildNodes[1].'#text'
-                    Note     = $CurrentSetting.Name
+            # Look for Exact Setting
+            $ExactSetting = $CurrentList | Where-Object -FilterScript $FilterScript
+        
+            # Skip this Item if the Exact Setting was found
+            If ([BOolean]$ExactSetting) { Continue PreviousList }
+
+            # Look for close setting
+            [Array]$Settings = $CurrentList | Where-Object -FilterScript { $_.SettingName -eq $PrevItem.SettingName }
+            If ($Settings.Count -gt 1) {
+                If ([Boolean]$PrevItem.Path) {
+                    $Settings = $Settings | Where-Object -FilterScript { $_.Path -eq $PrevItem.Path }
+                }
+                ElseIf ([Boolean]$PrevItem.KeyName) {
+                    $Settings = $Settings | Where-Object -FilterScript { $_.KeyName -eq $PrevItem.KeyName }
+                }
+                ElseIf ([Boolean]$PrevItem.Log) {
+                    $Settings = $Settings | Where-Object -FilterScript { $_.Log -eq $PrevItem.Log }
+                }
+                ElseIf ([Boolean]$PrevItem.SystemAccessPolicyName) {
+                    $Settings = $Settings | Where-Object -FilterScript { $_.SystemAccessPolicyName -eq $PrevItem.SystemAccessPolicyName }
                 }
             }
-            Remove-Variable PreviousSetting -ErrorAction SilentlyContinue
-        }
+            If ($Settings.Count -ge 1) {
+                
 
+                Foreach ($Setting in $Settings) {
+                    Foreach ($Key in $PrevItem.Keys) {
+                        If ($Setting.$Key -ne $PrevItem.$Key) {
+                            $Changes += @{
+                                GPO      = $Current.ParentNode.Name
+                                Change   = 'Setting Changed'
+                                Previous = $PrevItem.$Key
+                                Current  = $Setting.$Key
+                                Note     = "$($PrevItem.SettingName) :: $Key"
+                            }
+                        }
+                    }
+                }
+            }
+            Else {
+                $Note = $PrevItem.keys | Foreach-Object -Process {
+                    "$($_) :: $($PrevItem.$_)"
+                }
+                $Changes += @{
+                    GPO      = $Current.ParentNode.Name
+                    Change   = 'Setting Removed'
+                    Previous = $PrevItem.SettingName
+                    Current  = 'Removed'
+                    Note     = $Note -join "`n"
+                }
+            }
+        }
+        
+        # Additions
+        :CurrentList Foreach ($CurItem in $CurrentList) {
+            # Create Filterscript to Search if the Exact Setting is present
+            $FilterScript = @()
+            Foreach ($Key in $PrevItem.Keys) {
+                $FilterScript += "`$_.'$Key' -eq `$CurItem.'$Key'"
+            }
+            $FilterScript = [scriptblock]::Create($FilterScript -join ' -and ')
+            
+            # Look for Exact Setting
+            $ExactSetting = $PreviousList | Where-Object -FilterScript $FilterScript
+
+            If ([BOolean]$ExactSetting) { Continue CurrentList }
+
+            [Array]$Settings = $PreviousList | Where-Object -FilterScript { $_.SettingName -eq $CurItem.SettingName }
+            If ($Settings.Count -ge 1) {
+                If ([Boolean]$CurItem.Path) {
+                    $Settings = $Settings | Where-Object -FilterScript { $_.Path -eq $CurItem.Path }
+                }
+                ElseIf ([Boolean]$CurItem.KeyName) {
+                    $Settings = $Settings | Where-Object -FilterScript { $_.KeyName -eq $CurItem.KeyName }
+                }
+                ElseIf ([Boolean]$CurItem.Log) {
+                    $Settings = $Settings | Where-Object -FilterScript { $_.Log -eq $CurItem.Log }
+                }
+                ElseIf ([Boolean]$CurItem.SystemAccessPolicyName) {
+                    $Settings = $Settings | Where-Object -FilterScript { $_.SystemAccessPolicyName -eq $PrevItem.SystemAccessPolicyName }
+                }
+            }
+            If ($Settings.Count -eq 0) {
+                $Note = $CurItem.keys | Foreach-Object -Process {
+                    "$($_) :: $($CurItem.$_)"
+                }
+                $Changes += @{
+                    GPO      = $Current.ParentNode.Name
+                    Change   = 'Setting Added'
+                    Previous = 'Added'
+                    Current  = $CurItem.SettingName
+                    Note     = $Note -join "`n"
+                }
+            }
+        }
+        
         Return $Changes
     } # END FUNCTION Compare-Settings
 
@@ -388,8 +435,8 @@ Begin {
 
         $PermissionComparison = Compare-Permissions $Previous $Current
         $LinksComparison = Compare-Links $Previous $Current
-        $ComputerSettingComparison = Compare-Settings $Previous.GPO.Computer $Current.GPO.Computer $Current.GPO.Name
-        $UserSettingComparison = Compare-Settings $Previous.GPO.User $Current.GPO.User $Current.GPO.Name
+        $ComputerSettingComparison = Compare-Settings $Previous.GPO.Computer $Current.GPO.Computer
+        $UserSettingComparison = Compare-Settings $Previous.GPO.User $Current.GPO.User
         
         Return ($Changes + $LinksComparison + $PermissionComparison + $ComputerSettingComparison + $UserSettingComparison)
     } # END FUNCTION Compare-GPO
@@ -398,7 +445,7 @@ Begin {
         Param($Root)
         For ($i = 0; $i -lt $Root.ChildNodes.count; $i++) {
             $CurrentChild = $Root.ChildNodes[$i]
-            for ($j = 0; $j -lt $CurrentChild.ChildNodes.count; $j++) { 
+            For ($j = 0; $j -lt $CurrentChild.ChildNodes.count; $j++) { 
                 "$($CurrentChild.ChildNodes[$j].LocalName) :: $($CurrentChild.ChildNodes[$j].InnerText -join ',')"
             }
         }
@@ -406,32 +453,9 @@ Begin {
 
     Function Get-GPOSummary {
         Param($GPO)
-        $ComputerSettings = Get-AllChildren -Root $GPO.gpo.Computer.ExtensionData.Extension
-        $UserSettings = Get-AllChildren -Root $GPO.gpo.User.ExtensionData.Extension
-        $Permissions = (convertfrom-sddlstring $GPO.GPO.SecurityDescriptor.sddl.InnerText).DiscretionaryAcl | 
-        ForEach-Object -Process {
-            $Split = $_.Split(':').Split('(').TrimEnd(')').Trim()
-            $PermSetList = $Split[2].split(',').Trim()
-
-            If ($PermSetlist.Contains('FullControl')) {
-                $Permission = 'Edit Settings, Delete, Modify Security'
-            }
-            ElseIf ($PermSetList.Contains('WriteKey')) {
-                $Permission = 'Edit Settings'
-            }
-            ElseIf ($PermSetList.Contains('WriteAttributes')) {
-                $Permission = 'Apply Group Policy'
-            }
-            ElseIf ($PermSetList.Contains('GenericExecute')) {
-                $Permission = 'Read'
-            }
-            Else {
-                $Permission = 'Custom'
-            }
-         
-            "$($Split[1].Trim()): $($SPlit[0].Trim()): $Permission"
-        }
-        
+        $ComputerSettings = Get-GPOSettingSummary -GPO $GPO.gpo.Computer.ExtensionData.Extension -ToReadableString
+        $UserSettings = Get-GPOSettingSummary -GPO $GPO.gpo.User.ExtensionData.Extension -ToReadableString
+        $Permissions = Get-PermissionSummary -SDDLString $GPO.GPO.SecurityDescriptor.sddl.InnerText        
 
         $Links = Foreach ($Link in $GPO.GPO.LinksTo) {
             "$($Link.SOMPath) - Enabled: $($Link.Enabled) - Enforced: $($Link.NoOverride)"
@@ -440,6 +464,162 @@ Begin {
 
         Return "Name: $($GPO.GPO.Name)`n`nLinks: `n$($Links -join "`n") `n`n$General `n`nUser Settings:`n$($UserSettings -join "`n") `n`nComputer Settings: `n$($ComputerSettings -join "`n") `n`nPermissions: `n$($Permissions -join "`n")"
     } # END FUNCTION Get-GPOSummary
+
+    Function Get-PermissionSummary {
+        Param($SDDLString)
+        (convertfrom-sddlstring $SDDLString).DiscretionaryAcl | 
+            ForEach-Object -Process {
+                $Split = $_.Split(':').Split('(').TrimEnd(')').Trim()
+                $PermSetList = $Split[2].split(',').Trim()
+
+                If ($PermSetlist.Contains('FullControl')) {
+                    $Permission = 'Full Control'
+                }
+                ElseIf ($PermSetList.Contains('WriteKey')) {
+                    $Permission = 'Modify'
+                }
+                ElseIf ($PermSetList.Contains('WriteAttributes')) {
+                    $Permission = 'Apply Group Policy'
+                }
+                ElseIf ($PermSetList.Contains('GenericExecute') -or $PermSetList.Contains('Read') -or $PermSetList.Contains('ReadExtendedAttributes')) {
+                    $Permission = 'Read'
+                }
+                Else {
+                    $Permission = 'Custom'
+                }
+         
+                "$($Split[1].Trim()): $($SPlit[0].Trim()): $Permission"
+            }
+    } # END FUNCTION Get-PermissionSummary
+    
+    Function Get-GPOSettingSummary {
+        Param(
+            $GPO,
+            [Switch]$ToReadableString
+        )
+        If ([Boolean]$GPO.ExtensionData) {
+            $GPO = $GPO.ExtensionData.Extension
+        }
+        Elseif ([Boolean]$GPO.Extension) {
+            $GPO = $GPO.Extension
+        }
+
+        $Information = @()
+        Foreach ($Parent in $GPO) {
+            $CurrentChild = $Parent.FirstChild
+            Do {
+                $HashTable = [System.Collections.Specialized.OrderedDictionary]@{}
+
+                $HashTable.SettingName = $CurrentChild.LocalName + ' - ' + $CurrentChild.Name
+
+                If ($CurrentChild.Name -like 'Se*' -and ($CurrentChild.Name -like '*Privilege' -or $CurrentChild.Name -like '*Right')) {
+                    $HashTable.$($CurrentChild.Name) = $($CurrentChild.Member.Name.'#Text' -join ' ; ')
+                }
+                Else {
+                    [String[]]$SkipSettings = 'Supported', 'Explain', 'Category'
+                    :SettingNames Foreach ($SettingName in $CurrentChild.ChildNodes.Name) {
+                        If ($SettingName -like '*:*') { 
+                            $SettingName =  $SettingName.Split(':')[1].Trim()
+                        }
+                        # Skip if Setting is in the Skip
+                        If ($SkipSettings.Contains($SettingName) -or ![Boolean]$SettingName) { Continue SettingNames }
+
+                        # If Permissions get read-able summary
+                        ElseIf ([Boolean]$CurrentChild.$SettingName.SDDL) {
+                            $HashTable.$SettingName = (Get-PermissionSummary -SDDLString $CurrentChild.$SettingName.SDDL.InnerText) -join " ; "
+                        }
+
+                        # Catch All
+                        Else {
+                            # Get the item that will be evaluated
+                            If ([Boolean]$CurrentChild.$SettingName) {
+                                $ItemToEval = $CurrentChild.$SettingName
+                            }
+                            ElseIf ([Boolean]$SettingName) {
+                                $ItemToEval = $SettingName
+                            }
+                            # If a value exists for this setting add it
+                            If ([Boolean]$ItemToEval) { 
+                                
+                                #Get the value that will be added to the hashtable
+                                If ([Boolean]$ItemToEval.Value) {
+                                    $Value = $($ItemToEval.Value) -join ' ; '
+                                }
+                                ElseIf ([Boolean]$ItemToEval.'#text') {
+                                    $Value = $($ItemToEval.'#text') -join ' ; '
+                                }                                
+                                ElseIf ($ItemToEval -is [System.Array]) {
+                                    $Value = $($ItemToEval -join ' ; ')
+                                }
+                                ElseIf ([Boolean]$ItemToEval.InnerText) {
+                                    $Value = $($ItemToEval.InnerText -join ' ; ')
+                                }
+                                Else {
+                                    $Value = $($ItemToEval -join ' ; ') 
+                                }
+
+                                # Add value to hashtable
+                                If ($value -ne $CurrentChild.Name) {
+                                    
+                                    # Determine which key to put it under
+                                    If ($SettingName.LocalName -eq 'Name' -and $SettingName.ParentNode.LocalName -ne 'Name') {
+                                        $Key = ($SettingName.ParentNode.LocalName)
+                                    }
+                                    ElseIf ([Boolean]$CurrentChild.$SettingName) {
+                                        $Key = $SettingName
+                                    }
+                                    ElseIf ([Boolean]$CurrentChild.LocalName) {
+                                        $Key = $($CurrentChild.LocalName)
+                                    }
+                                    Else {
+                                        $Key = 'Note'
+                                        
+                                    }
+
+                                    # Add $Value to $HashTable under the selected $Key
+                                    If ([Boolean]$HashTable.$Key) {
+                                        $HashTable.$Key = $HashTable.$Key + ', ' + $Value
+                                    }
+                                    Else {
+                                        $HashTable.$Key = $Value
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            
+                $Information += $HashTable
+            
+                If ($CurrentChild -ne $Parent.LastChild) {
+                    $CurrentChild = $CurrentChild.NextSibling
+                }
+            }
+            While ($CurrentChild -ne $Parent.LastChild)
+        }
+    
+        If ($ToReadableString.IsPresent) {
+            Return $Information | ForEach-Object -Process {
+                "`n"
+                Foreach ($Key in $_.Keys) {
+                    $ValueSplit = $_.$Key.Split(";").Trim()
+
+                    If ($ValueSplit.Count -gt 1) {
+                        "$Key ::`n`t$($ValueSplit -join "`n`t")"
+                    }
+                    ElseIf ([Boolean]$ValueSplit) {
+                        "$Key :: $ValueSplit"
+                    }
+                    Else {
+                        "$Key :: $($_.$Key)"
+                    }
+                }
+            }
+        }
+        Else {
+            Return $Information
+        }
+    } # END FUNCTION Get-GPOSettingSummary
 
     #endregion Functions
 

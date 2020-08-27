@@ -33,7 +33,7 @@ Function Reset-LocalUserPassword {
         [String] $Password
     )
     Begin {
-        $Old_ErrorActionPreference
+        $Old_ErrorActionPreference = $ErrorActionPreference
     }
     Process {
         
@@ -76,7 +76,7 @@ Function Rename-LocalUser {
         [String] $NewName
     )
     Begin {
-        $Old_ErrorActionPreference
+        $Old_ErrorActionPreference = $ErrorActionPreference
     }
     Process {
         
@@ -117,7 +117,7 @@ Function Remove-LocalUser {
         [Boolean]$Confirm = $True
     )
     Begin {
-        $Old_ErrorActionPreference
+        $Old_ErrorActionPreference = $ErrorActionPreference
     }
     Process {
         
