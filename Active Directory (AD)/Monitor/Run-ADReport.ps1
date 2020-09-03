@@ -14,7 +14,7 @@ $From = 'AD-Checker@address.com'
 $To = @(
     'email@address.com'
 )
-$Subject = "AD Report $Start"
+$Subject = "$env:USERDNSDOMAIN AD Report $Start"
 
 $ExportRoot = "$PSScriptRoot\Reports\$(Get-Date -Format yyyy\\MM\\dd)".Replace(':', '$')
 
@@ -58,24 +58,24 @@ Function SendOut {
         $FileType = "csv"
     )
     $Path = "$ExportRoot\$Domain`_$Title`_$Date.$FileType"
-
+    $Link = "<a href='$Path'>$Date.$FileType</a>"
     If (![Bool]$Info -or $Info -eq $Null -or $Info.Count -eq 0) {
-        $Global:MailBody += "$Domain $Title`: 0`n`n"
+        $Global:MailBody += "$Domain $Title`: 0<br /><br />"
     }
     ElseIf ($Info.GetType().Name -eq 'ErrorRecord' -or $Info.GetType().Name -like "*Int*" -or ($Info.Gettype().Name -eq 'String' -and $Info.split("`n").Count -le 1)) {
-        $Global:MailBody += "$Domain $Title`: $Info - $($Info.ScriptStackTrace)`n`n"
+        $Global:MailBody += "$Domain $Title`: $Info - $($Info.ScriptStackTrace)<br /><br />"
     }
     ElseIf ($Title -eq 'SPN_Duplicate') {
         If ($Info.Count -gt $Threshold) {
-            $Global:MailBody += "$Domain $Title ($(($info -like '*:*').Count)): <$Path>`n`n"
+            $Global:MailBody += "$Domain $Title ($(($info -like '*:*').Count)): $Link<br /><br />"
             Set-Content -Value $Info -Path $Path -Force
         }
         Else {
-            $Global:MailBody += "$Domain $Title`: 0`n`n"
+            $Global:MailBody += "$Domain $Title`: 0<br /><br />"
         }
     }
     ElseIf ($Info.Count -gt $Threshold) {
-        $Global:MailBody += "$Domain $Title ($($info.Count)): <$Path>`n`n"
+        $Global:MailBody += "$Domain $Title ($($info.Count)): $Link<br /><br />"
         If ($FileType -eq 'csv') {
             $Info | Export-Csv $Path -NoTypeInformation -Force
         }
@@ -84,7 +84,7 @@ Function SendOut {
         }
     }
     Else {
-        $Global:MailBody += "$Domain $Title`: $($Info.Count)`n`n"
+        $Global:MailBody += "$Domain $Title`: $($Info.Count)<br /><br />"
     }
 }
 
@@ -101,7 +101,7 @@ Function ForEach-Parallel {
         [int]$MaxThreads = ([wmisearcher]"SELECT NumberOfLogicalProcessors FROM Win32_ComputerSystem").Get().NumberOfLogicalProcessors + 1,
 
         [Parameter(Mandatory = $False)]
-        $Parameters = @{ }
+        $Parameters = @{}
     )
 
     Begin {
@@ -210,7 +210,7 @@ Function Test-PendingReboot {
             Try {
                 If (([WmiClass]"\\$Computer\ROOT\CCM\ClientSDK:CCM_ClientUtilities").DetermineIfRebootPending().RebootPending -eq 'True') { $PendingReboot = $true }   
             }
-            Catch { }
+            Catch {}
  
             Return $PendingReboot
         }
@@ -242,7 +242,7 @@ $ScriptBlock = {
             # Gets Data
             Import-Csv -Path $FullNetlogonPath -Delimiter ' ' -Header 'Date', 'Time', 'Domain', 'Error', 'Host', 'IP' |
             # Filters out any non NO_CLIENT_SITE entries and any entries older than $DaysOld
-            Where-Object -FilterScript { $_.Error -like '*NO_CLIENT_SITE*' -and (([DateTime]$_.Date -gt [DateTime]::Now.AddDays(-$DaysOld) -and [DateTime]$_.Date -lt [DateTime]::Now)) } | 
+            Where-Object -FilterScript { $_.IP -notlike "169.254.*" -and $_.Error -like '*NO_CLIENT_SITE*' -and (([DateTime]$_.Date -gt [DateTime]::Now.AddDays(-$DaysOld) -and [DateTime]$_.Date -lt [DateTime]::Now)) } | 
             # Selects Unique IPS
             Select-Object -Property @{Name = "MissingSubnet"; Expression = { "$($_.IP) - $($_.Host)" } } | 
             Select-Object -ExpandProperty MissingSubnet -Unique |
@@ -281,15 +281,15 @@ $ScriptBlock = {
     If (![Bool]$Domain) { Continue Domains }
     Try {
         If (!([System.IO.Directory]::Exists("\\$Domain\SYSVOL"))) {
-            $Global:MailBody += "`n----- $Domain -----`nUnable to reach \\$Domain\SYSVOL.`n`n"
+            $Global:MailBody += "<br />----- $Domain -----<br />Unable to reach \\$Domain\SYSVOL.<br /><br />"
             Continue Domains 
         }
         Else {
-            $Global:MailBody += "`n----- $Domain -----`n`n"
+            $Global:MailBody += "<br />----- $Domain -----<br /><br />"
         }
     }
     Catch {
-        $Global:MailBody += "`n----- $Domain -----`n$_ to \\$Domain\SYSVOL.`n`n"
+        $Global:MailBody += "<br />----- $Domain -----<br />$_ to \\$Domain\SYSVOL.<br /><br />"
         Continue Domains
     }
 
@@ -340,6 +340,19 @@ $ScriptBlock = {
         Remove-Variable ns -ErrorAction SilentlyContinue 
     } | 
     Get-Random
+
+    SendOut -Title AD_Objects_Remove_adminCount -Threshold 0 -FileType txt -Info $(
+        
+        $AdminGroups = 'Account Operators', 'Administrators', 'Backup Operators', 'Domain Admins', 'Domain Controllers', 'Enterprise Admins', 'Print Operators', 'Read-only Domain Controllers', 'Replicator', 'Schema Admins', 'Server Operators'
+
+        [string[]]$ActualProtectedObjects = $admingroups | Get-ADGroupMember -Recursive -Server $Domain | Select-Object -ExpandProperty distinguishedname -Unique
+        $ActualProtectedObjects += $AdminGroups | ForEach-Object { Get-ADGroup $_ -Server $Domain | Select-Object -ExpandProperty distinguishedname } 
+        $ActualProtectedObjects += $AdminGroups | ForEach-Object { Get-ADGroup $_ -Properties members -Server $Domain | Select-Object -ExpandProperty members } 
+
+        Get-ADObject -LDAPFilter "(adminCount=1)" -Server $Domain | 
+        Select-Object -ExpandProperty distinguishedname | 
+        Where-Object -FilterScript { !$ActualProtectedObjects.Contains($_) }
+    )
 
     # Accounts with "Password Not Required" set
     SendOut -Title AD_Objects_User_Password_Not_Required -Threshold 0 -Info $(
@@ -596,6 +609,20 @@ $ScriptBlock = {
         Else { "Unable to retrieve GPOs" }
     )
 
+    # GPOs with disabled links
+    SendOut -Title GPO_Disabled_Links -Threshold 0 -Info $(
+        If ($GPOs.Count -gt 0) {
+            $GPOs | Foreach-Object -Process { 
+                $GPO = $_
+                ([xml]($GPO | Get-GPOReport -Domain $Domain -ReportType XML)).GPO.LinksTo | 
+                Where-Object -FilterScript {$_.Enabled -eq 'false'} | 
+                Select-Object -Property @{Name='GPO';Expression={$GPO.DisplayName} }, @{Name='Link';Expression={$_.SOMPath} }, Enabled, @{Name='Enforced';Expression={$_.NoOverride} } | 
+                Sort-Object -Property GPO
+            } 
+        }
+        Else { "Unable to retrieve GPOs" }
+    )
+
 
     # GPOs Where Owner is not Domain Admin
     SendOut -Title GPO_Without_DA_Owner -Threshold 0 -Info $(
@@ -621,7 +648,7 @@ $ScriptBlock = {
             }
 
             Remove-Variable ACL, AuthUsers -ErrorAction SilentlyContinue
-        }
+        } | Sort-Object
     )
 
 
@@ -767,7 +794,7 @@ $ScriptBlock = {
     
 
     # Lists the empty OUs
-    SendOut -Title AD_Empty_OUs -Threshold 0 -FileType txt -Info $(
+    SendOut -Title AD_OU_Empty -Threshold 0 -FileType txt -Info $(
         $OUs |
         Where-object -FilterScript { $_.Properties.distinguishedname -notlike "=*-*-*-*," -and
             $_.Properties.distinguishedname -notlike "*CN=OpsMgrLatencyMonitors*" -and
@@ -779,7 +806,29 @@ $ScriptBlock = {
             If ($ObjectCount -le 1) {
                 $_.Properties.distinguishedname
             }
-        } | Sort-Object
+        } | Sort-Object -Property { $_.Length } -Descending
+    )
+
+
+    # Lists the OUs that are no protected from deletion
+    SendOut -Title AD_OU_No_Deletion_Protection -Threshold 0 -FileType txt -Info $(
+        $OUs |
+        # Foreach OU
+        ForEach-Object -Process {
+            $ACL = Get-Acl "AD:\$($_.Properties.distinguishedname)"
+            $Protected = $ACL.Access | Where-Object -FilterScript { $_.IdentityReference -eq 'Everyone' -and $_.ActiveDirectoryRights -eq 'DeleteTree, Delete' -and $_.AccessControlType -eq 'Deny' }
+            If (![Boolean]$Protected) {
+                $_.Properties.distinguishedname
+            }
+            Remove-Variable ACL, Protected -ErrorAction SilentlyContinue
+        } | Sort-Object -Property { $_.Length } -Descending
+    )
+    
+
+    # Lists OUs that have no group policy links
+    SendOut -Title AD_OU_No_GP_links -Threshold 0 -FileType txt -Info $(
+        ($OUs |
+            Where-Object -FilterScript { $_.distinguishedname -like "OU=*" -and !$_.Properties.gplink }).Properties.distinguishedname
     )
 
 
@@ -793,8 +842,8 @@ $ScriptBlock = {
             $_.HostName -ne "_ldap._tcp.$Domain" -and $_.HostName -ne '_kerberos._tcp' } |
         ForEach-Object -Process {
             $CompName = $_.RecordData.DomainName.split('.')[0].ToLower().Trim()
-            Try { $DCCheck = Get-ADDomainController -Identity $CompName -Server $Domain -ErrorAction Stop } Catch { }
-            Try { $ADCompObject = Get-ADComputer -Identity $CompName -Server $Domain -ErrorAction Stop } Catch { }
+            Try { $DCCheck = Get-ADDomainController -Identity $CompName -Server $Domain -ErrorAction Stop } Catch {}
+            Try { $ADCompObject = Get-ADComputer -Identity $CompName -Server $Domain -ErrorAction Stop } Catch {}
             $PingCheck = Test-Connection -ComputerName $CompName -Quiet -Count 1 -ErrorAction SilentlyContinue
 
             If (![Boolean]$DCCheck -or !$PingCheck) {
@@ -830,7 +879,8 @@ $ScriptBlock = {
     SendOut -Title AD_SS_Sites_No_Subnets -Threshold 0 -FileType txt -Info $(
         $ADSSSites |
         Where-Object -FilterScript { $_.Subnets.Count -eq 0 } |
-        Select-Object -ExpandProperty Name
+        Select-Object -ExpandProperty Name |
+        Sort-Object
     )
 
 
@@ -838,7 +888,8 @@ $ScriptBlock = {
     SendOut -Title AD_SS_Sites_No_DCs -Threshold 0 -FileType txt -Info $(
         $ADSSSites |
         Where-Object -FilterScript { $_.Servers.Count -eq 0 } |
-        Select-Object -ExpandProperty Name
+        Select-Object -ExpandProperty Name |
+        Sort-Object
     )
 
     If ([Boolean]$DCs) {
@@ -849,7 +900,6 @@ $ScriptBlock = {
         $DCs | ForEach-Parallel -ScriptBlock $ScriptBlock -Parameters $Parameters
 
         If ([System.IO.File]::Exists($ExportPath)) {
-
             Get-Content -Path $ExportPath |
             Sort-Object -Unique | 
             Set-Content -Path $ExportPath -Force
@@ -857,11 +907,11 @@ $ScriptBlock = {
             If ((Get-Content -Path $ExportPath).Count -eq 0 -or ![Bool](Get-Content -Path $ExportPath)) {
                 Remove-Item $ExportPath
             }
-
-            $Global:MailBody += "$Domain AD_SS_Missing_Subnets ($((Get-Content $ExportPath).Count)): <$ExportPath>`n`n"
+            
+            $Global:MailBody += "$Domain AD_SS_Missing_Subnets ($((Get-Content $ExportPath).Count)): <a href='$ExportPath'> $Date.txt</a><br /><br />"
         }
         Else {
-            $Global:MailBody += "$Domain AD_SS_Missing_Subnets: 0`n`n"
+            $Global:MailBody += "$Domain AD_SS_Missing_Subnets: 0<br /><br />"
         }
         # endregion Missing Subnets
 
@@ -963,28 +1013,35 @@ $ScriptBlock = {
                 }
             ) 
         )
+
+        SendOut -Title DC_Services -Threshold 0 -Info $(
+            $Services = 'Active Directory Domain Services', 'DFS Replication', 'DNS Client', 'DNS server', 'Group Policy Client', 'Intersite Messaging', 'Kerberos Key Distribution Center', 'NetLogon', 'Windows Time'
+            Get-Service -DisplayName $Services -ComputerName $DCs | 
+            Where-Object -FilterScript { $_.StartType -ne 'Automatic' -or $_.Status -ne 'Running' } |
+            Select-Object -Property MachineName, Displayname, StartType, Status
+        )
     }
-    
-
-    $Global:MailBody += "`n`n"
-
+    $Global:MailBody += "<br /><br />"
 }
 
 
 $End = [DateTime]::Now
 
 
-$Body = "This report is an accumalation of a bunch of scripts & queries about AD.
+$Body = "<html><body>
+This report is an accumalation of a bunch of scripts & queries about AD.<br /><br />
 
-Account Used: $ENV:USERNAME
-Server Used: $ENV:ComputerName
+Account Used: $ENV:USERNAME<br />
+Server Used: $ENV:ComputerName<br /><br />
 
-Start: $Start
-End: $End
-Duration: $($End-$Start)`n`n
-$($Global:MailBody -join "`n`n")"
+Start: $Start<br />
+End: $End<br />
+Duration: $($End-$Start)<br /><br />
+$($Global:MailBody -join "<br /><br />")
+
+</body></html>"
 
 Send-MailMessage `
     -SmtpServer $SMTPServer -Port $Port `
     -From $From -To $To `
-    -Subject $Subject -Body $Body
+    -Subject $Subject -Body $Body -BodyAsHtml

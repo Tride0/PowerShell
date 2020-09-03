@@ -15,7 +15,7 @@ Param(
     $SMTPPort = 25,
     $EMailFrom = 'GPO_Monitor@Domain.com',
     $EmailTo = 'your@email.com',
-    $EMailSubject = "GPO Monitor $(Get-Date -Format yyyyMMdd)"
+    $EMailSubject = "$env:USERDNSDOMAIN GPO Monitor $(Get-Date -Format yyyyMMdd)"
 )
 Begin {
     #Import required modules
@@ -441,16 +441,6 @@ Begin {
         Return ($Changes + $LinksComparison + $PermissionComparison + $ComputerSettingComparison + $UserSettingComparison)
     } # END FUNCTION Compare-GPO
 
-    Function Get-AllChildren {
-        Param($Root)
-        For ($i = 0; $i -lt $Root.ChildNodes.count; $i++) {
-            $CurrentChild = $Root.ChildNodes[$i]
-            For ($j = 0; $j -lt $CurrentChild.ChildNodes.count; $j++) { 
-                "$($CurrentChild.ChildNodes[$j].LocalName) :: $($CurrentChild.ChildNodes[$j].InnerText -join ',')"
-            }
-        }
-    } # END FUNCTION Get-AllChildren
-
     Function Get-GPOSummary {
         Param($GPO)
         $ComputerSettings = Get-GPOSettingSummary -GPO $GPO.gpo.Computer.ExtensionData.Extension -ToReadableString
@@ -502,6 +492,10 @@ Begin {
         }
         Elseif ([Boolean]$GPO.Extension) {
             $GPO = $GPO.Extension
+        }
+
+        If (![Boolean]$GPO.ParentNode.Extension) {
+            Return $null
         }
 
         $Information = @()
@@ -591,11 +585,9 @@ Begin {
             
                 $Information += $HashTable
             
-                If ($CurrentChild -ne $Parent.LastChild) {
-                    $CurrentChild = $CurrentChild.NextSibling
-                }
+                $CurrentChild = $CurrentChild.NextSibling
             }
-            While ($CurrentChild -ne $Parent.LastChild)
+            While ([Boolean]$CurrentChild)
         }
     
         If ($ToReadableString.IsPresent) {
@@ -753,7 +745,7 @@ Process {
         
         If ($OldBackUpReports.Count -gt 1) {
             $OldBackUpReports |
-            Select-Object -ExpandProperty FullName -First 1 | 
+            Select-Object -ExpandProperty FullName -First ($OldBackUpReports.Count-1) | 
             Remove-Item -Recurse -Force
         }
     }

@@ -28,6 +28,16 @@
             Group/User Memberof
                 1 Permission = ReadProperty, WriteProperty
                 2 Property = memberof
+            Link Unlink GPO
+                . Two Entries
+                1 Permission = ReadProperty, WriteProperty
+                2 ObjectType = organizationalUnit
+                3 Inheritance = All
+                4 Property = gPLink
+                1 Permission = ReadProperty, WriteProperty
+                2 ObjectType = organizationalUnit
+                3 Inheritance = All
+                4 Property = gPOptions
                 
 #>
 
@@ -195,7 +205,12 @@ Process {
                 $PropertyGUID = $GuidMap["$($Entry.ObjectType)"]
             }
             Else {
-                $ObjectType = $GuidMap["$($Entry.ObjectType)"]
+                If ($Entry.ObjectType -eq 'All') {
+                    $ObjectType = [GUID]'00000000-0000-0000-0000-000000000000'
+                }
+                Else {
+                    $ObjectType = $GuidMap["$($Entry.ObjectType)"]
+                }
                 If ([Boolean]$Entry.Property) {
                     $PropertyGUID = $GuidMap["$($Entry.Property)"]
                 }
