@@ -2,48 +2,77 @@
     .NOTES
         Created By: Kyle Hewitt
         Created On: 08-13-2020
-        Version: 2020.08.18
+        Version: 2020.09.15
 
     .DESCRIPTION
         For:
-            Create and Delete
+            Create, Delete without Modify
                 . Creating a user requires some modify permissions. Specifically the permission to set the password or to disable the user.
                 Permission = CreateChild, DeleteChild
-                Inheritance = SelfAndChildren or All
-            Modify w/o Full Control
-                Permission = CreateChild, DeleteChild, ListChildren, ReadProperty, DeleteTree, ExtendedRight, Delete, GenericWrite
+                ObjectType = user,computer,group,etc.
+                Inheritance = All
+
+            Modify without Full Control
+                Permission = CreateChild, DeleteChild, Self, ReadProperty, WriteProperty
                 Inheritance = Descendents
+                InheritedObjectType = user,computer,group,etc.
+
+            Create, Delete, Modify
+                . Two Entries
+                1 Permission = CreateChild, DeleteChild
+                1 ObjectType = user,computer,group,etc.
+                1 Inheritance = All
+
+                2 Permission = CreateChild, DeleteChild, Self, ReadProperty, WriteProperty
+                2 Inheritance = Descendents
+                2 InheritedObjectType = user,computer,group,etc.
+
+            Specific Property Permission
+                Permission = ReadProperty, WriteProperty
+                InheritedObjectType = OBJECT_TYPE (User,Computer,Group,etc.)
+                ObjectType = PROPERTY
+
             Unlock
                 Permission = ReadProperty, WriteProperty
-                Property = lockouttime
+                InheritedObjectType = User
+                ObjectType = lockouttime
+                
             Reset Password
                 . Two Entries
                 1 Permission = ExtendedRight
-                1 Property = Reset Password
+                1 ObjectType = Reset Password
+                1 InheritedObjectType = User
+
                 2 Permission = ExntededRight
-                2 Property = Change Password
+                2 ObjectType = Change Password
+                2 InheritedObjectType = User
+
             Group Members
-                1 Permission = ReadProperty, WriteProperty
-                2 Property = member
+                Permission = ReadProperty, WriteProperty
+                InheritedObjectType = Group
+                ObjectType = member
+
             Group/User Memberof
-                1 Permission = ReadProperty, WriteProperty
-                2 Property = memberof
+                Permission = ReadProperty, WriteProperty
+                InheritedObjectType = Group
+                ObjectType = memberof
+
             Link Unlink GPO
                 . Two Entries
                 1 Permission = ReadProperty, WriteProperty
-                2 ObjectType = organizationalUnit
-                3 Inheritance = All
-                4 Property = gPLink
-                1 Permission = ReadProperty, WriteProperty
-                2 ObjectType = organizationalUnit
-                3 Inheritance = All
-                4 Property = gPOptions
-                
+                1 InheritedObjectType = organizationalUnit
+                1 Inheritance = All
+                1 ObjectType = gPLink
+
+                2 Permission = ReadProperty, WriteProperty
+                2 InheritedObjectType = organizationalUnit
+                2 Inheritance = All
+                2 ObjectType = gPOptions
 #>
 
 Param(
     [String]$CSVPath = "$PSScriptRoot\OUPerm.csv",
-    [String]$OUforADAccessGroups = "OU"
+    [String]$OUforADAccessGroups = ""
 )
 
 Begin {
@@ -60,12 +89,14 @@ Begin {
             AccessGroupName = ''
             Permission = ([System.DirectoryServices.ActiveDirectoryRights].GetEnumNames() -join ' ; ')
             PermissionType = ([System.Security.AccessControl.AccessControlType].GetEnumNames() -join ', ')
-            ObjectType = 'User, Computer, Group, not limited to these'
+            InheritedObjectType = ''
+            ObjectType = ''
             Inheritance = ([System.DirectoryServices.ActiveDirectorySecurityInheritance].GetEnumNames() -join ', ')
-            Property = 'Leave Blank for all Properties, Change Password, Reset Password, lockouttime not limited to these'
         } | 
             Export-Csv -Path $CSVPath -NoTypeInformation -Force
         & $CSVPath
+        Write-Host $GuidMap.Keys | Sort-Object
+        Write-Host "`nThe above values are options for ObjectType and InheritedObjectType."
         Read-Host -Prompt "Fill out CSV then rerun script. Exitting"
         Exit
     }
@@ -124,7 +155,7 @@ Begin {
 }
 Process {
     :CSV Foreach ($Entry in $CSV) {
-        Remove-Variable ADGroup, ACL, ACE, AccessRule, ADRights, ObjectType -ErrorAction SilentlyContinue
+        Remove-Variable ADGroup, AccessRule, identity, adRights, PermissionType, ObjectType, Inheritance, InheritedObjectType, ACL, ACE -ErrorAction SilentlyContinue
 
         If (![Boolean]$Entry.OU) {
             Write-Host "OU not provided. Skipping." -ForegroundColor Red
@@ -142,7 +173,7 @@ Process {
             }
         }
         Else {
-            Write-host "Exists: '$($Entry.OU)'" -ForegroundColor Green
+            Write-host "Exists: '$($Entry.OU)'" -ForegroundColor Yellow
         }
 
         If (![Boolean]$Entry.AccessGroupName) {
@@ -152,13 +183,13 @@ Process {
 
         Try {
             $ADGroup = Get-ADGroup $Entry.AccessGroupName -ErrorAction Stop
-            Write-Host "Exists: '$($Entry.AccessGroupName)'" -ForegroundColor Green
+            Write-Host "Exists: '$($Entry.AccessGroupName)'" -ForegroundColor Yellow
         }
         Catch {
             # Create Access Group
             Try {
                 # Create Group Description
-                $GroupDescription = "$($Entry.Permission) $($Entry.Property) Permission for $($Entry.ObjectType) objects in $($Entry.OU)"
+                $GroupDescription = "$($Entry.Permission) $($Entry.ObjectType) Permission for $($Entry.ObjectType) objects in $($Entry.OU)"
                 
                 # Create Group
                 $ADGroup = New-ADGroup -Description $GroupDescription -Path $OUforADAccessGroups -SamAccountName $Entry.AccessGroupName -Name $Entry.AccessGroupName -DisplayName $Entry.AccessGroupName -GroupCategory Security -GroupScope DomainLocal -PassThru -ErrorAction Stop
@@ -170,8 +201,8 @@ Process {
             }
         }
 
-        If (![Boolean]$Entry.Permission -or ![Boolean]$Entry.ObjectType) {
-            Write-Host "Permission and ObjectType not specified. Skipping." -ForegroundColor Red
+        If (![Boolean]$Entry.Permission) {
+            Write-Host "Permission not specified. Skipping." -ForegroundColor Red
             Continue CSV
         }
 
@@ -199,40 +230,32 @@ Process {
                 $Inheritance = [System.DirectoryServices.ActiveDirectorySecurityInheritance]::($Entry.Inheritance)
             }
 
-
-            If (($ADRights -like "*CreateChild*" -or $ADRights -like "*DeleteChild*") -and $ADRights -notlike "*GenericWrite*") {
-                $ObjectType = [GUID]'00000000-0000-0000-0000-000000000000'
-                $PropertyGUID = $GuidMap["$($Entry.ObjectType)"]
+            If ([Boolean]$Entry.ObjectType) {
+                $ObjectType = $GuidMap["$($Entry.ObjectType)"]
             }
             Else {
-                If ($Entry.ObjectType -eq 'All') {
-                    $ObjectType = [GUID]'00000000-0000-0000-0000-000000000000'
-                }
-                Else {
-                    $ObjectType = $GuidMap["$($Entry.ObjectType)"]
-                }
-                If ([Boolean]$Entry.Property) {
-                    $PropertyGUID = $GuidMap["$($Entry.Property)"]
-                }
+                $ObjectType = [GUID]'00000000-0000-0000-0000-000000000000'
             }
-            
+
+            If ([Boolean]$Entry.InheritedObjectType) {
+                $InheritedObjectType = $GuidMap["$($Entry.InheritedObjectType)"]
+            }
+            Else {
+                $InheritedObjectType = [GUID]'00000000-0000-0000-0000-000000000000'
+            }
 
             # Create Access Role
-            If ([Boolean]$PropertyGUID) {
-                $accessrule = new-object System.DirectoryServices.ActiveDirectoryAccessRule $identity, $adRights, $PermissionType, $PropertyGUID, $Inheritance, $ObjectType -ErrorAction Stop
-            }
-            Else {
-                $AccessRule = New-object System.DirectoryServices.ActiveDirectoryAccessRule $Identity, $ADRights, $PermissionType, $Inheritance, $ObjectType -ErrorAction Stop 
-            }
-
+            $AccessRule = New-Object System.DirectoryServices.ActiveDirectoryAccessRule $Identity, $ADRights, $PermissionType, $ObjectType, $Inheritance, $InheritedObjectType -ErrorAction Stop
+            
             #Check for ACE on ACL, if it already exists. Skip it.
             $ACE = $ACL.Access | Where-Object -FilterScript {
                 $_.IdentityReference -like "*\$($ADGroup.Name)" -and 
-                $_.InheritedObjectType.Guid -eq $ObjectType.Guid  -and 
+                $_.InheritedObjectType.Guid -eq $InheritedObjectType.Guid -and 
                 $_.InheritanceType -eq $Inheritance -and 
                 $_.AccessControlType -eq $PermissionType -and 
                 $_.ActiveDirectoryRights -eq $ADRights -and 
-                (![Boolean]$PropertyGUID.Guid -or $_.ObjectType.Guid -eq $PropertyGUID.Guid)}
+                $_.ObjectType.Guid -eq $ObjectType.Guid }
+
             If ([Boolean]$ACE) { 
                 Write-Host "Access Control Entry (ACE) Already Exists. Skipping." -ForegroundColor Yellow
                 Continue CSV 
@@ -243,7 +266,7 @@ Process {
 
             # Set new ACL on OU
             Set-Acl -Path "AD:\$($Entry.OU)" -AclObject $ACL -ErrorAction Stop
-            Write-Host "Added: '$($Entry.AccessGroupName)' to '$($Entry.OU)' with '$($Entry.Permission)' $($Entry.Property) for '$($Entry.ObjectType)' objects" -ForegroundColor DarkGreen
+            Write-Host "Added: '$($Entry.AccessGroupName)' to '$($Entry.OU)' with '$($Entry.Permission)' $($Entry.ObjectType) for '$($Entry.ObjectType)' objects" -ForegroundColor DarkGreen
         } 
         Catch {
             Write-Host "Failed to Edit ACL. Error: $_" -ForegroundColor Red

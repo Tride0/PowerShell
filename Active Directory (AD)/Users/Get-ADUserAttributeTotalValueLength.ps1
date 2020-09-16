@@ -1,4 +1,4 @@
-Function Get-ADUserAttributeValueCount {
+Function Get-ADUserAttributeTotalValueLength {
     <#
         .NOTES
             Created By: Kyle Hewitt
@@ -6,7 +6,7 @@ Function Get-ADUserAttributeValueCount {
             Version: 2020.09.03
 
         .DESCRIPTION
-            This script will count the number of values in all attributes and return the information for any that are above a threshold
+            This script will get the total length of all values in all attributes and return the information for any that are above a threshold.
 
         .USES
             This script may help with the "Administrative limit for this request was exceeded" error.
@@ -14,7 +14,7 @@ Function Get-ADUserAttributeValueCount {
 
     Param(
         [Parameter(Mandatory)][String]$Identity,
-        $Threshold = 1
+        $Threshold = 100
     )
     Begin {
         Import-Module ActiveDirectory -ErrorAction Stop
@@ -28,15 +28,16 @@ Function Get-ADUserAttributeValueCount {
             Select-Object -ExpandProperty name
 
         Foreach ($prop in $properties) {
-            If ($User.$prop.count -gt $Threshold) {
+            If ("$($User.$prop)".length -gt $Threshold) {
                 $InfoArr += [PSCustomObject]@{
                     Attribute = $prop
-                    ValueCount = $User.$prop.count
+                    TotalValuesLength = "$($User.$prop)".length
                 }
             }
         }
     }
     End {
-        Return ($InfoArr | Sort-Object -Property ValueCount -Descending)
+        Return ($InfoArr | Sort-Object -Property TotalValuesLength -Descending)
     }
 }
+
