@@ -94,9 +94,9 @@
         Foreach ($ID in $Identifier) {
             $ID = $ID.Trim()
             If ([Boolean]$SearchByAttribute) {
-                $Searcher.Filter = "($($Searcher.$SearchByAttribute)=$ID)"
+                $Searcher.Filter = "($SearchByAttribute=$ID)"
             }
-            If ($ID -like 'CN=*' -or $ID -like 'OU=*' -or $ID -like 'DC=*' -or $ID -like "*,*=*") {
+            ElseIf ($ID -like 'CN=*' -or $ID -like 'OU=*' -or $ID -like 'DC=*' -or $ID -like "*,*=*") {
                 $Searcher.Filter = "(distinguishedname=$ID)"
             }
             ElseIf ($ID -like '*@*.*') {
