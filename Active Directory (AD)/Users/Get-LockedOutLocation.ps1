@@ -20,8 +20,8 @@ Function Get-LockedOutLocation {
     [CmdletBinding()]
 
     Param(
-      [Parameter(Mandatory=$True)]
-      [String]$Identity
+        [Parameter(Mandatory = $True)]
+        [String]$Identity
     )
 
     Begin {
@@ -33,8 +33,8 @@ Function Get-LockedOutLocation {
 
         Catch {
 
-           Write-Warning $_
-           Break
+            Write-Warning $_
+            Break
         }
     }
 
@@ -46,11 +46,11 @@ Function Get-LockedOutLocation {
 
         Write-Verbose "Finding the domain controllers in the domain"
 
-        ForEach($DC in $DomainControllers) {
+        ForEach ($DC in $DomainControllers) {
 
             $DCCounter++
-            Write-Progress -Activity "Contacting DCs for lockout info" -Status "Querying $($DC.Hostname)" -PercentComplete (($DCCounter/$DomainControllers.Count) * 100)
-            Try { $UserInfo = Get-ADUser -Identity $Identity  -Server $DC.Hostname -Properties AccountLockoutTime,LastBadPasswordAttempt,BadPwdCount,LockedOut -ErrorAction Stop }
+            Write-Progress -Activity "Contacting DCs for lockout info" -Status "Querying $($DC.Hostname)" -PercentComplete (($DCCounter / $DomainControllers.Count) * 100)
+            Try { $UserInfo = Get-ADUser -Identity $Identity  -Server $DC.Hostname -Properties AccountLockoutTime, LastBadPasswordAttempt, BadPwdCount, LockedOut -ErrorAction Stop }
 
             Catch {
 
@@ -61,45 +61,45 @@ Function Get-LockedOutLocation {
             if ($UserInfo.LastBadPasswordAttempt) {
 
                 $LockedOutStats += New-Object -TypeName PSObject -Property @{
-                        Name                   = $UserInfo.SamAccountName
-                        SID                    = $UserInfo.SID.Value
-                        LockedOut              = $UserInfo.LockedOut
-                        BadPwdCount            = $UserInfo.BadPwdCount
-                        BadPasswordTime        = $UserInfo.BadPasswordTime
-                        DomainController       = $DC.Hostname
-                        AccountLockoutTime     = $UserInfo.AccountLockoutTime
-                        LastBadPasswordAttempt = ($UserInfo.LastBadPasswordAttempt).ToLocalTime()
+                    Name                   = $UserInfo.SamAccountName
+                    SID                    = $UserInfo.SID.Value
+                    LockedOut              = $UserInfo.LockedOut
+                    BadPwdCount            = $UserInfo.BadPwdCount
+                    BadPasswordTime        = $UserInfo.BadPasswordTime
+                    DomainController       = $DC.Hostname
+                    AccountLockoutTime     = $UserInfo.AccountLockoutTime
+                    LastBadPasswordAttempt = ($UserInfo.LastBadPasswordAttempt).ToLocalTime()
                 }
             }
         }
 
-        $LockedOutStats | Format-Table -Property Name,LockedOut,DomainController,BadPwdCount,AccountLockoutTime,LastBadPasswordAttempt -AutoSize
+        $LockedOutStats | Format-Table -Property Name, LockedOut, DomainController, BadPwdCount, AccountLockoutTime, LastBadPasswordAttempt -AutoSize
 
         #Get User Info
         Try {
 
-           Write-Verbose "Querying event log on $($PDCEmulator.HostName)"
-           $LockedOutEvents = Get-WinEvent -ComputerName $PDCEmulator.HostName -FilterHashtable @{LogName='Security';Id=4740} -ErrorAction Stop | Sort-Object -Property TimeCreated -Descending
+            Write-Verbose "Querying event log on $($PDCEmulator.HostName)"
+            $LockedOutEvents = Get-WinEvent -ComputerName $PDCEmulator.HostName -FilterHashtable @{LogName = 'Security'; Id = 4740 } -ErrorAction Stop | Sort-Object -Property TimeCreated -Descending
         }
 
         Catch {
 
-           Write-Warning $_
-           Continue
+            Write-Warning $_
+            Continue
         }
 
         ForEach ($Event in $LockedOutEvents) {
 
-           if ($Event | Where {$_.Properties[2].value -match $UserInfo.SID.Value}) {
-              $Event | Select-Object -Property @(
-                @{Label = 'User';               Expression = {$_.Properties[0].Value}}
-                @{Label = 'DomainController';   Expression = {$_.MachineName}}
-                @{Label = 'EventId';            Expression = {$_.Id}}
-                @{Label = 'LockedOutTimeStamp'; Expression = {$_.TimeCreated}}
-                @{Label = 'Message';            Expression = {$_.Message -split "`r" | Select -First 1}}
-                @{Label = 'LockedOutLocation';  Expression = {$_.Properties[1].Value}}
-              )
-          }
-       }
+            if ($Event | Where { $_.Properties[2].value -match $UserInfo.SID.Value }) {
+                $Event | Select-Object -Property @(
+                    @{Label = 'User'; Expression = { $_.Properties[0].Value } }
+                    @{Label = 'DomainController'; Expression = { $_.MachineName } }
+                    @{Label = 'EventId'; Expression = { $_.Id } }
+                    @{Label = 'LockedOutTimeStamp'; Expression = { $_.TimeCreated } }
+                    @{Label = 'Message'; Expression = { $_.Message -split "`r" | Select -First 1 } }
+                    @{Label = 'LockedOutLocation'; Expression = { $_.Properties[1].Value } }
+                )
+            }
+        }
     }
 }

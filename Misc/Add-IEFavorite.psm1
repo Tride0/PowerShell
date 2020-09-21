@@ -1,5 +1,4 @@
-Function Add-IEFavorite
-{
+Function Add-IEFavorite {
     <#
         .NOTES    
             Created By: Kyle Hewitt

@@ -23,8 +23,8 @@
     $FileVersion = $Item.VersionInfo.FileVersionRaw.ToString()
 
     $Summary = [PSCustomObject]@{
-        Matches = ($FileVersion -eq $Version)
-        FileVersion = $FileVersion
+        Matches         = ($FileVersion -eq $Version)
+        FileVersion     = $FileVersion
         ProvidedVersion = $Version
     }
 

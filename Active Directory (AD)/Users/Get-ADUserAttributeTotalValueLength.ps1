@@ -24,13 +24,13 @@ Function Get-ADUserAttributeTotalValueLength {
         $User = Get-Aduser $Identity -Properties *
 
         $properties = $User.PSObject.Members | 
-            Where-Object -FilterScript { $_.MemberType -like '*Property*' -and $_.Name -ne 'PropertyNames' } | 
-            Select-Object -ExpandProperty name
+        Where-Object -FilterScript { $_.MemberType -like '*Property*' -and $_.Name -ne 'PropertyNames' } | 
+        Select-Object -ExpandProperty name
 
         Foreach ($prop in $properties) {
             If ("$($User.$prop)".length -gt $Threshold) {
                 $InfoArr += [PSCustomObject]@{
-                    Attribute = $prop
+                    Attribute         = $prop
                     TotalValuesLength = "$($User.$prop)".length
                 }
             }

@@ -42,7 +42,7 @@
                         [String[]]$SkipSettings = 'Supported', 'Explain', 'Category'
                         :SettingNames Foreach ($SettingName in $CurrentChild.ChildNodes.Name) {
                             If ($SettingName -like '*:*') { 
-                                $SettingName =  $SettingName.Split(':')[1].Trim()
+                                $SettingName = $SettingName.Split(':')[1].Trim()
                             }
                             # Skip if Setting is in the Skip
                             If ($SkipSettings.Contains($SettingName) -or ![Boolean]$SettingName) { Continue SettingNames }

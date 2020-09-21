@@ -24,13 +24,13 @@ Function Get-ADUserAttributeValueCount {
         $User = Get-Aduser $Identity -Properties *
 
         $properties = $User.PSObject.Members | 
-            Where-Object -FilterScript { $_.MemberType -like '*Property*' -and $_.Name -ne 'PropertyNames' } | 
-            Select-Object -ExpandProperty name
+        Where-Object -FilterScript { $_.MemberType -like '*Property*' -and $_.Name -ne 'PropertyNames' } | 
+        Select-Object -ExpandProperty name
 
         Foreach ($prop in $properties) {
             If ($User.$prop.count -gt $Threshold) {
                 $InfoArr += [PSCustomObject]@{
-                    Attribute = $prop
+                    Attribute  = $prop
                     ValueCount = $User.$prop.count
                 }
             }

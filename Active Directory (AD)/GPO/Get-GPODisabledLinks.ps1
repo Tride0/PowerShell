@@ -18,8 +18,8 @@ Function Get-GPODisabledLinks {
         [Microsoft.GroupPolicy.GPDomain]::new("$Domain").GetAllGpos() | Foreach-Object -Process { 
             $GPO = $_
             ([xml]($GPO | Get-GPOReport -Domain $Domain -ReportType XML)).GPO.LinksTo | 
-            Where-Object -FilterScript {$_.Enabled -eq 'false'} | 
-            Select-Object -Property @{Name='GPO';Expression={$GPO.DisplayName} }, @{Name='Link';Expression={$_.SOMPath} }, Enabled, @{Name='Enforced';Expression={$_.NoOverride} } | 
+            Where-Object -FilterScript { $_.Enabled -eq 'false' } | 
+            Select-Object -Property @{Name = 'GPO'; Expression = { $GPO.DisplayName } }, @{Name = 'Link'; Expression = { $_.SOMPath } }, Enabled, @{Name = 'Enforced'; Expression = { $_.NoOverride } } | 
             Sort-Object -Property GPO
         }
     }

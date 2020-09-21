@@ -14,6 +14,6 @@ $Domain = [System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain().
 $Root = "DC=$($Domain.Split('.') -join ',DC=')"
 
 Get-ADGroup -Filter * -Properties Members -PipelineVariable Group |
-    Select-Object -Expand Members |
-    Where-Object -Filter {$_ -notlike "*$Root"} -PipelineVariable Member |
-    Select-Object @{Name='GroupName';Expression={$Group.DistinguishedName}}, @{Name='GroupDN';Expression={$Group.DistinguishedName}}, @{Name='Member';Expression={$Member}}
+Select-Object -Expand Members |
+Where-Object -Filter { $_ -notlike "*$Root" } -PipelineVariable Member |
+Select-Object @{Name = 'GroupName'; Expression = { $Group.DistinguishedName } }, @{Name = 'GroupDN'; Expression = { $Group.DistinguishedName } }, @{Name = 'Member'; Expression = { $Member } }

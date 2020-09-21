@@ -48,7 +48,7 @@ Function Set-InterScriptInfo {
 Function Get-InterScriptInfo {
     Param(
         [String]$ScriptPath = $ScriptPath,
-        [ValidateSet('Index','Content')]$OutputType = 'Content'
+        [ValidateSet('Index', 'Content')]$OutputType = 'Content'
     )
 
     $ScriptContent = Get-Content $ScriptPath
@@ -64,15 +64,14 @@ Function Get-InterScriptInfo {
     }
     ElseIf ($OutputType -eq 'Content') {
         $Hash = [System.Collections.Specialized.OrderedDictionary]@{}
-        :BuildHashFor For ($i = $FirstLineIndex; $i -le $LastLineIndex; $i++)
-        { 
+        :BuildHashFor For ($i = $FirstLineIndex; $i -le $LastLineIndex; $i++) { 
             $i_Content = $ScriptContent[$i]
             If ($i_Content -notlike '*:*') { Continue BuildHashFor }
             Else {
                 $Split_Content = $i_Content.split(':').Trim()
                 $Key = $Split_Content[0]
                 $value = $Split_Content[1]
-                $Hash.Add($Key,$Value)
+                $Hash.Add($Key, $Value)
             }
         }
         Return $Hash
@@ -88,8 +87,7 @@ Function Clear-InterScriptInfo {
 
     $Indexes = Get-InterScriptInfo -ScriptPath $ScriptPath -OutputType Index 
 
-    :PurgeFor For ($i = $Indexes[0]; $i -le $Indexes[-1]; $i++)
-    { 
+    :PurgeFor For ($i = $Indexes[0]; $i -le $Indexes[-1]; $i++) { 
         $i_Content = $ScriptContent[$i]
         If ($i_Content -notlike '*:*') { Continue PurgeFor }
         Else {
@@ -110,7 +108,7 @@ Function ExecuteRemotely {
     )
     $WMIProcess = ([Management.ManagementClass]"\\$Computer\ROOT\CIMV2:win32_process")
 
-    Return $WMIProcess.InvokeMethod("Create","Powershell.exe -File `"$FilePath`"")
+    Return $WMIProcess.InvokeMethod("Create", "Powershell.exe -File `"$FilePath`"")
 }
 
 #endregion Functions
@@ -162,7 +160,7 @@ If ($CurrentComputer -eq $InterScriptInfo.Dispersor -or ![Boolean]$InterScriptIn
 
         $ScriptBlock_Index = $ScriptContent.IndexOf('# TEMP SCRIPT BLOCK')
         If ($ScriptBlock_Index -ne -1) {
-            Set-Content -Path $ScriptPath -Value $ScriptContent[0..($ScriptBlock_Index-2)] -Force
+            Set-Content -Path $ScriptPath -Value $ScriptContent[0..($ScriptBlock_Index - 2)] -Force
         }
         Else {
             Write-Warning "Failed to clear scriptblock from script. Please verify script is clear before attempting to run again."

@@ -71,8 +71,7 @@ Function Edit-ADObjects {
                 }
             }
 
-            For ($i = 0; $i -lt $Object.Keys.Count; $i++)
-            {
+            For ($i = 0; $i -lt $Object.Keys.Count; $i++) {
                 $Key = ([string[]]$Object.Keys)[$i]
                 If ($Object.$Key -is [Array]) {
                     $Object.$Key = $Object.$Key -join "`n"
@@ -100,7 +99,7 @@ Function Edit-ADObjects {
 
         # Get List of available parameters so they can be used on the correct cmd let and parameter
         $SetADObjectAvailableParameters = (Get-Command Set-ADObject).Parameters.GetEnumerator() | 
-        Where-Object -FilterScript { 'String', 'Nullable`1' -contains $_.Value.ParameterType.Name -and $_.key -notlike "*Variable"} | 
+        Where-Object -FilterScript { 'String', 'Nullable`1' -contains $_.Value.ParameterType.Name -and $_.key -notlike "*Variable" } | 
         Select-Object -ExpandProperty Key
 
         Add-ToLog -Value "Checking if CSV File Exists"
@@ -108,7 +107,7 @@ Function Edit-ADObjects {
         If (!(Test-Path -Path $CSVPath)) {
             Add-ToLog -Value "Creating CSV File"
             # Create CSV file
-            [PSCustomObject]@{ Identity='Use samaccountname, userprincipalname or distinguishedname' } | 
+            [PSCustomObject]@{ Identity = 'Use samaccountname, userprincipalname or distinguishedname' } | 
             Select-Object -Property 'Identity', 'Path', 'Server', 'RunAsUserName', 'RunAsPassword' |
             Export-Csv -Path $CSVPath -NoTypeInformation -Force
             
@@ -270,8 +269,7 @@ Function Edit-ADObjects {
                 If ($_.Exception -is [Microsoft.ActiveDirectory.Management.ADIdentityNotFoundException]) {
                     Add-ToFailureLog -Info $SetADObjectParameters -Note "Failed to find Object. Error: $_"
                 }
-                Else
-                {
+                Else {
                     Add-ToFailureLog -Info $SetADObjectParameters -Note "Failed to edit Object. Error: $_"
                 }
                 Add-ToLog -Value "Failed to edit Object. Error: $_"

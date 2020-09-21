@@ -15,8 +15,8 @@
 [String[]]$Include = @(
     @{
         # Leave ADAttribute or MatchString blank to include all computers from this OU
-        ADAttribute = 'name'
-        MatchString = 'phx*'
+        ADAttribute   = 'name'
+        MatchString   = 'phx*'
         # This is array-able
         IncludeFromOU = $('OU=Computers,DC=chw,DC=edu')
     }
@@ -24,8 +24,8 @@
 
 $Exclude = @(
     @{
-        ADAttribute = 'OperatingSystem'
-        MatchString = '*Server*'
+        ADAttribute   = 'OperatingSystem'
+        MatchString   = '*Server*'
         # Leave ExcludeFromOU blank or put * if you want this filter to apply to every computer retrieved from the OU(s). This is array-able.
         ExcludeFromOU = @('OU=Computers,DC=chw,DC=edu')
     }
@@ -49,7 +49,7 @@ If ([Boolean]$Match.ADAttribute -or [Boolean]$Exclude.ADAttribute) {
 $Computers = @()
 Foreach ($Inclusion in $Include) {
     If ([Boolean]$Inclusion.ADAttribute -and [Boolean]$Inclusion.MatchString) {
-        $GetADComputerParameters.Filter = {$Inclusion.ADAttribute -like "$MatchString"}
+        $GetADComputerParameters.Filter = { $Inclusion.ADAttribute -like "$MatchString" }
     } 
     Else {
         $GetADComputerParameters.Filter = '*'
@@ -63,18 +63,18 @@ Foreach ($Inclusion in $Include) {
 $Excluded = @()
 Foreach ($Exclusion in $Exclude) {
     $CurrentIterationList = $Computers |
-        Where-Object -FilterScript { $_.($Exclusion.ADAttribute) -notlike $Exclusion.MatchString }
+    Where-Object -FilterScript { $_.($Exclusion.ADAttribute) -notlike $Exclusion.MatchString }
     
     Foreach ($OU in $Exclusion.ExcludeFromOU) {
         If ([Boolean]$OU -or $OU -notlike '*') {
             $CurrentIterationList = $CurrentIterationList |
-                Where-Object -FilterScript { $_.DistinguishedName -notmatch "CN=[^=]{1,},$OU" }
+            Where-Object -FilterScript { $_.DistinguishedName -notmatch "CN=[^=]{1,},$OU" }
         }
     }
     $Excluded += $CurrentIterationList
 }
 $Computers = $Computers | 
-    Where-Object -FilterScript {$Excluded.DistinguishedName -notcontains $_.DistinguishedName }
+Where-Object -FilterScript { $Excluded.DistinguishedName -notcontains $_.DistinguishedName }
 
 
 # Foreach Computer

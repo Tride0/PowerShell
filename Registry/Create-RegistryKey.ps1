@@ -18,18 +18,18 @@ Function Create-RegistryKey {
         If ([Boolean]$Key) {
             $KeySplit = $key.TrimStart('\').TrimStart('/').Split('\').Split('/')
             $BaseKey = $KeySplit[0]
-            $SubKey = $KeySplit[1..$($KeySplit.Count-2)] -join '/'
+            $SubKey = $KeySplit[1..$($KeySplit.Count - 2)] -join '/'
             $CreateKey = $KeySplit[-1]
             Remove-Variable KeySplit -ErrorAction SilentlyContinue
         }
         Else {
             $KeySplit = $key.TrimStart('\').TrimStart('/').Split('\').Split('/')
-            $SubKey = $KeySplit[0..$($KeySplit.Count-2)] -join '/'
+            $SubKey = $KeySplit[0..$($KeySplit.Count - 2)] -join '/'
             $CreateKey = $KeySplit[-1]
         }
         If ($BaseKey -like "HKEY*") {
             $BaseKeySplit = $BaseKey.Split('_')
-            $BaseKey = $BaseKeySplit[1..$($BaseKeySplit.Count-1)] -join ''
+            $BaseKey = $BaseKeySplit[1..$($BaseKeySplit.Count - 1)] -join ''
             Remove-Variable BaseKeySplit -ErrorAction SilentlyContinue
         }
         
@@ -37,7 +37,7 @@ Function Create-RegistryKey {
     Process {
         :ComputerName Foreach ($Computer in $Computername) {
             Try {
-                $Key = [Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey($BaseKey, $Computer).OpenSubKey($SubKey,$True)
+                $Key = [Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey($BaseKey, $Computer).OpenSubKey($SubKey, $True)
             }
             Catch {
                 Write-Error "Failed to Open '$($Key.Name)'.`nError: $_ "

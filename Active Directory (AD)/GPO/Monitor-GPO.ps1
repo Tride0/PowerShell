@@ -458,28 +458,28 @@ Begin {
     Function Get-PermissionSummary {
         Param($SDDLString)
         (convertfrom-sddlstring $SDDLString).DiscretionaryAcl | 
-            ForEach-Object -Process {
-                $Split = $_.Split(':').Split('(').TrimEnd(')').Trim()
-                $PermSetList = $Split[2].split(',').Trim()
+        ForEach-Object -Process {
+            $Split = $_.Split(':').Split('(').TrimEnd(')').Trim()
+            $PermSetList = $Split[2].split(',').Trim()
 
-                If ($PermSetlist.Contains('FullControl')) {
-                    $Permission = 'Full Control'
-                }
-                ElseIf ($PermSetList.Contains('WriteKey')) {
-                    $Permission = 'Modify'
-                }
-                ElseIf ($PermSetList.Contains('WriteAttributes')) {
-                    $Permission = 'Apply Group Policy'
-                }
-                ElseIf ($PermSetList.Contains('GenericExecute') -or $PermSetList.Contains('Read') -or $PermSetList.Contains('ReadExtendedAttributes')) {
-                    $Permission = 'Read'
-                }
-                Else {
-                    $Permission = 'Custom'
-                }
-         
-                "$($Split[1].Trim()): $($SPlit[0].Trim()): $Permission"
+            If ($PermSetlist.Contains('FullControl')) {
+                $Permission = 'Full Control'
             }
+            ElseIf ($PermSetList.Contains('WriteKey')) {
+                $Permission = 'Modify'
+            }
+            ElseIf ($PermSetList.Contains('WriteAttributes')) {
+                $Permission = 'Apply Group Policy'
+            }
+            ElseIf ($PermSetList.Contains('GenericExecute') -or $PermSetList.Contains('Read') -or $PermSetList.Contains('ReadExtendedAttributes')) {
+                $Permission = 'Read'
+            }
+            Else {
+                $Permission = 'Custom'
+            }
+         
+            "$($Split[1].Trim()): $($SPlit[0].Trim()): $Permission"
+        }
     } # END FUNCTION Get-PermissionSummary
     
     Function Get-GPOSettingSummary {
@@ -513,7 +513,7 @@ Begin {
                     [String[]]$SkipSettings = 'Supported', 'Explain', 'Category'
                     :SettingNames Foreach ($SettingName in $CurrentChild.ChildNodes.Name) {
                         If ($SettingName -like '*:*') { 
-                            $SettingName =  $SettingName.Split(':')[1].Trim()
+                            $SettingName = $SettingName.Split(':')[1].Trim()
                         }
                         # Skip if Setting is in the Skip
                         If ($SkipSettings.Contains($SettingName) -or ![Boolean]$SettingName) { Continue SettingNames }
@@ -745,7 +745,7 @@ Process {
         
         If ($OldBackUpReports.Count -gt 1) {
             $OldBackUpReports |
-            Select-Object -ExpandProperty FullName -First ($OldBackUpReports.Count-1) | 
+            Select-Object -ExpandProperty FullName -First ($OldBackUpReports.Count - 1) | 
             Remove-Item -Recurse -Force
         }
     }

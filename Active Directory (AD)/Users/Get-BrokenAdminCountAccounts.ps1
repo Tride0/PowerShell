@@ -18,6 +18,6 @@ $ActualProtectedObjects += $ExcludeUsers  | Get-ADUser | Select-Object -ExpandPr
 $ActualProtectedObjects += $ExcludeGroups | Get-ADGroup | Select-Object -ExpandProperty distinguishedname
 
 $FixAccounts = Get-ADObject -LDAPFilter "(adminCount=1)" | 
-    Select-Object -ExpandProperty distinguishedname | 
-    Where-Object -FilterScript { !$ActualProtectedObjects.Contains($_) } | 
-    Sort-Object
+Select-Object -ExpandProperty distinguishedname | 
+Where-Object -FilterScript { !$ActualProtectedObjects.Contains($_) } | 
+Sort-Object

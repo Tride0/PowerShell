@@ -16,8 +16,8 @@ Function Create-Tree {
             Param($DN)
             $SplitDN = $DN.split(',')
             Return @{
-                OU = $DN
-                Parent = $SplitDN[1..($SplitDN.Count-1)] -join ','
+                OU        = $DN
+                Parent    = $SplitDN[1..($SplitDN.Count - 1)] -join ','
                 ChildName = $SplitDN[0].Split('=')[1]
             }
         }

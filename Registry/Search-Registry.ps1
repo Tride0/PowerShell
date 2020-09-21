@@ -16,8 +16,7 @@ Function Search-Registry {
         [Switch]$SearchValues,
         [Switch]$Recurse
     )
-    Foreach ($Computer in $ComputerName)
-    {
+    Foreach ($Computer in $ComputerName) {
         If ($Subkey) {
             $Key = [Microsoft.Win32.RegistryKey]::OpenRemoteBaseKey($BaseKey, $Computer).OpenSubKey($SubKey)
         }

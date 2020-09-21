@@ -1,14 +1,12 @@
-Function Call-Splunk
-{
+Function Call-Splunk {
     Param(
-        [Parameter(ParameterSetName="Search")]$Search = "",
+        [Parameter(ParameterSetName = "Search")]$Search = "",
         [String]$APIBase = "https://SERVER:8089/services"
     )
 
     #Provide them the credentials that has access to Splunk. Domain username/pw
-    If (![Bool]$Global:Creds)
-    {
-	    $Global:Creds = Get-Credential 
+    If (![Bool]$Global:Creds) {
+        $Global:Creds = Get-Credential 
         [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
         [System.Net.ServicePointManager]::MaxServicePointIdleTime = 5000000
         [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -19,10 +17,10 @@ Function Call-Splunk
     #Create Search Job in Splunk
     $SearchCreation = Invoke-RestMethod -Method Post -Uri "$APIBase/search/jobs/" `
         -Body @{
-            search = $Search
-            output_mode = 'json'
-            earliest = "-60m"
-        } `
+        search      = $Search
+        output_mode = 'json'
+        earliest    = "-60m"
+    } `
         -Credential $Creds
     Write-Host "[$(Get-date)] Job SID: $($SearchCreation.sid)"
 
@@ -30,14 +28,13 @@ Function Call-Splunk
     
     $I = 0
     Remove-Variable -Name StartWait -ErrorAction SilentlyContinue
-    While ('RUNNING','QUEUED' -contains $SearchStatus.entry.content.dispatchState -or ![Boolean]$SearchStatus)
-    {
+    While ('RUNNING', 'QUEUED' -contains $SearchStatus.entry.content.dispatchState -or ![Boolean]$SearchStatus) {
         $I ++
         $SearchStatus = Invoke-RestMethod -Method GET `
             -Uri "$APIBase/search/jobs/$($SearchCreation.sid)/" `
             -Body @{
-                output_mode = 'json'
-            } `
+            output_mode = 'json'
+        } `
             -Credential $Creds
 
         If ($SearchStatus.entry.content.dispatchState -eq 'RUNNING' -and ![Boolean]$StartWait) { $StartWait = Get-Date }
@@ -52,8 +49,8 @@ Function Call-Splunk
     $SearchResults = Invoke-RestMethod -Method GET `
         -Uri "$APIBase/search/jobs/$($SearchCreation.sid)/results" `
         -Body @{
-            output_mode = 'json'
-        } `
+        output_mode = 'json'
+    } `
         -Credential $Creds
     Write-Host "[$(Get-date)] Result Count: $($SearchResults.results.count)"
     Write-Output $SearchResults.results

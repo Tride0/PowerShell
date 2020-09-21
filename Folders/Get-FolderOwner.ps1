@@ -20,8 +20,7 @@ Clear
 #region Setup
 
 #This snippet is here incase someone wants to use .\ to determine the path
-If ($Path -like '.\*')
-{
+If ($Path -like '.\*') {
     $Path = (Get-Item $Path).FullName
 }
 
@@ -29,7 +28,7 @@ If ($Path -like '.\*')
 $ADSearcher = New-Object System.DirectoryServices.DirectorySearcher
 #only gets these specific properties from the AD Objects
 'objectclass', 'managedby', 'info', 'description', 'name' | 
-    ForEach-Object -Process { [Void] $ADSearcher.PropertiesToLoad.Add($_) }
+ForEach-Object -Process { [Void] $ADSearcher.PropertiesToLoad.Add($_) }
 
 #endregion Setup
 
@@ -44,21 +43,18 @@ $ADSearcher = New-Object System.DirectoryServices.DirectorySearcher
 #Creates Temp Variable to use as the stop for the While Loop
 $TempPath = $Path
 #Gets All Parent Paths to check for an Owner
-While ($TempPath.Split('\',[System.StringSplitOptions]::RemoveEmptyEntries).Count -gt 1)
-{
+While ($TempPath.Split('\', [System.StringSplitOptions]::RemoveEmptyEntries).Count -gt 1) {
     #Gets Parent Path
     $ParentPath = Split-Path -Path $TempPath -Parent
     #If Used to prevent errors if TempPath gets too short
-    If ([Bool]$ParentPath)
-    {
+    If ([Bool]$ParentPath) {
         #Adds Parent Path to Paths variable for later
         $Paths += $ParentPath
         #Makes the ParentPath the next path to evaluate
         $TempPath = $ParentPath
     }
     #Used to stop Loop for UNC Paths
-    Else
-    {
+    Else {
         $TempPath = ''
     }
 }
@@ -69,21 +65,19 @@ Remove-Variable ParentPath, TempPath -ErrorAction SilentlyContinue
 #This variable is used to prevent redundant searches
 $PreviousIDs = @()
 
-:Paths Foreach ($Path in $Paths)
-{
+:Paths Foreach ($Path in $Paths) {
     #Clears variables from previous iteration
     Remove-Variable PACEs -ErrorAction SilentlyContinue
 
-    If ($PassThru)
-    {
+    If ($PassThru) {
         Write-Host "`n`n`n$Path" -ForegroundColor Magenta
     }
     
     #Gets the parent ACL to exclude the explicity applied groups
-    Try
-    {
+    Try {
         $PACEs = (Get-Acl -Path (Split-Path $Path -Parent) -ErrorAction SilentlyContinue).Access.IdentityReference.value
-    } Catch {}
+    }
+    Catch {}
 
     #Gets the ACL that's applied on the folder
     $ACL = Get-Acl -Path $Path
@@ -93,9 +87,9 @@ $PreviousIDs = @()
 
     #Gets all the IdenityReferences from the ACEs
     $IDRefs = $ACEs |
-        Where-Object -FilterScript {
-            #The Inherited Groups will be reviewed on the next parent folder
-            $_.IsInherited -eq $FALSE -and `
+    Where-Object -FilterScript {
+        #The Inherited Groups will be reviewed on the next parent folder
+        $_.IsInherited -eq $FALSE -and `
             #There won't be owners on Builtin Groups, this excludes them
             $_.IdentityReference -notlike "NT AUTHORITY\*" -and `
             $_.IdentityReference -notlike "BUILTIN\*" -and `
@@ -105,12 +99,11 @@ $PreviousIDs = @()
             $PreviousIDs -notcontains $_.IdentityReference -and `
             #Excludes parents ACEs
             $PACEs -notcontains $_.IdentityReference
-        } |
-        #Selects the IdentityReferences specifically because that's all we want
-        Select-Object -ExpandProperty IdentityReference
+    } |
+    #Selects the IdentityReferences specifically because that's all we want
+    Select-Object -ExpandProperty IdentityReference
     
-    If (![Bool]$IDRefs -and $PassThru) 
-    { 
+    If (![Bool]$IDRefs -and $PassThru) { 
         
         Write-Host "Nothing found to check." -ForegroundColor Red
         Continue Paths 
@@ -119,8 +112,7 @@ $PreviousIDs = @()
     #Adds the IdentityReferences from this folder and adds them to the variable to prevent them from being used the next level.
     $PreviousIDs += $IDRefs.Value
 
-    :IDRefs Foreach ($ID in $IDRefs.Value)
-    {
+    :IDRefs Foreach ($ID in $IDRefs.Value) {
         #Removes the domain prefix from the IdentityReference
         $SAN = $ID.Split('\')[1]
         
@@ -130,30 +122,26 @@ $PreviousIDs = @()
 
         #Skips any IdentityReference that isn't a group
         If ($ADObject.Properties.objectclass -notcontains 'group') { Continue IDRefs }
-        ElseIf ([Bool]$ADObject.Properties.managedby -or [Bool]$ADObject.Properties.info -or [Bool]$ADObject.Properties.description)
-        {
+        ElseIf ([Bool]$ADObject.Properties.managedby -or [Bool]$ADObject.Properties.info -or [Bool]$ADObject.Properties.description) {
             $Data = [PSCustomObject]@{
-                Path = $Path
+                Path        = $Path
                 Description = $($ADObject.Properties.description)
-                GroupName = $($ADObject.Properties.name)
-                Notes = $($ADObject.Properties.info)
-                ManagedBy = $($ADObject.Properties.managedby)
+                GroupName   = $($ADObject.Properties.name)
+                Notes       = $($ADObject.Properties.info)
+                ManagedBy   = $($ADObject.Properties.managedby)
             }
 
             #Exports Data
             $Data | Export-Csv -Path $ExportPath -NoTypeInformation -Append
             
             #Displays data on prompt
-            If ($PassThru)
-            {
+            If ($PassThru) {
                 Write-Output $Data
             }
         }
     }
-    If ($PassThru)
-    {
-        If ((Read-Host -Prompt "Press Enter to Check Next Parent... Type 'Exit' to Exit") -eq 'Exit')
-        {
+    If ($PassThru) {
+        If ((Read-Host -Prompt "Press Enter to Check Next Parent... Type 'Exit' to Exit") -eq 'Exit') {
             Exit
         }
     }

@@ -9,7 +9,7 @@ Function Split-List {
             Splits list into multiple equal lists
     #>
     Param(
-        [ValidateScript({$_ -like "*:\*" -or $_ -like "\\*\*"})][String]$ListPath,
+        [ValidateScript( { $_ -like "*:\*" -or $_ -like "\\*\*" })][String]$ListPath,
         $SplitCount = 2
     )
 
@@ -23,7 +23,7 @@ Function Split-List {
     }
     Catch { Throw $_ }
 
-    $Step = $List.Count/$SplitCount
+    $Step = $List.Count / $SplitCount
 
     $First = 0
     $Last = $Step - 1

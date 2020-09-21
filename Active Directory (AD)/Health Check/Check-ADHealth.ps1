@@ -30,7 +30,7 @@ Invoke-Command -ComputerName $Computer -ScriptBlock {
 
     # REPL SUM
 
-    $repadmin_replsum = (repadmin /replsum).split("`n",[System.StringSplitOptions]::RemoveEmptyEntries).Trim()
+    $repadmin_replsum = (repadmin /replsum).split("`n", [System.StringSplitOptions]::RemoveEmptyEntries).Trim()
 
     $replsum_failures = $repadmin_replsum -notlike '*0' -notlike '*..*' -notlike '*largest delta*' -notlike '*replication summary*'
 
@@ -45,7 +45,7 @@ Invoke-Command -ComputerName $Computer -ScriptBlock {
 
     # SHOW REPL
 
-    $repadmin_showrepl = (repadmin /showrepl).split("`n",[System.StringSplitOptions]::RemoveEmptyEntries).Trim()
+    $repadmin_showrepl = (repadmin /showrepl).split("`n", [System.StringSplitOptions]::RemoveEmptyEntries).Trim()
     $showrepl_failures = $repadmin_showrepl -like '*Last attempt*' -notlike '*was successful*'
     $showrepl_failure_context = @()
     Foreach ($failure in $showrepl_failures) {
@@ -70,7 +70,7 @@ Invoke-Command -ComputerName $Computer -ScriptBlock {
 
     # DC DIAG
 
-    $dcdiag = (dcdiag).split("`n",[System.StringSplitOptions]::RemoveEmptyEntries) -ne ''
+    $dcdiag = (dcdiag).split("`n", [System.StringSplitOptions]::RemoveEmptyEntries) -ne ''
     $dcdiag_failures = $dcdiag -like "*failed test*"
     $dcdiag_failure_context = @()
     Foreach ($failure in $dcdiag_failures) {

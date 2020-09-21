@@ -1,14 +1,14 @@
 [String[]]$Computers = @'
 
-'@.Split("`n",[System.StringSplitOptions]::RemoveEmptyEntries).Trim() -ne ''
+'@.Split("`n", [System.StringSplitOptions]::RemoveEmptyEntries).Trim() -ne ''
 
 [String[]]$FullGoServices = @'
 
-'@.Split("`n",[System.StringSplitOptions]::RemoveEmptyEntries).Trim() -ne ''
+'@.Split("`n", [System.StringSplitOptions]::RemoveEmptyEntries).Trim() -ne ''
 
 [String[]]$FullStopServices = @'
 
-'@.Split("`n",[System.StringSplitOptions]::RemoveEmptyEntries).Trim() -ne ''
+'@.Split("`n", [System.StringSplitOptions]::RemoveEmptyEntries).Trim() -ne ''
 
 configuration Config-Services {
     Param(
@@ -20,8 +20,8 @@ configuration Config-Services {
     {
         Foreach ($Service in $FullStopServices) {
             Service "$Service`_FullStop" {
-                Name = $Service
-                State = 'Stopped'
+                Name        = $Service
+                State       = 'Stopped'
                 StartupType = 'Disabled'
                 
             }
@@ -29,8 +29,8 @@ configuration Config-Services {
 
         Foreach ($Service in $FullGoServices) {
             Service "$Service`_FullGo" {
-                Name = $Service
-                State = 'Running'
+                Name        = $Service
+                State       = 'Running'
                 StartupType = 'Automatic'
             }
         }

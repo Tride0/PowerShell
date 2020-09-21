@@ -18,7 +18,7 @@ Function Send-Message {
    Foreach ($Computer in $ComputerName) {    
       If ((Test-Connection -ComputerName $Computer -Count 1 -Quiet -TimeToLive 4) -or $ENV:COMPUTERNAME) {
          Invoke-WmiMethod -ComputerName $Computer -Class Win32_Process -Name Create -ArgumentList "C:\windows\system32\msg.exe /TIME:$TTLSeconds $Session $Message" -ErrorAction SilentlyContinue |
-            Select-Object -Property @{Name='Computer';Expression={$Computer}}, ProcessID, ReturnValue
+         Select-Object -Property @{Name = 'Computer'; Expression = { $Computer } }, ProcessID, ReturnValue
       }
    }
 }

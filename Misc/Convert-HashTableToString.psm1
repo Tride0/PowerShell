@@ -13,17 +13,17 @@ Function Convert-HashTableToString {
     )
     Begin {
         #region Functions
-            Function Convert-ArrayToString {
-                Param([Array]$Array)
-                $String = @()
-                :ArrayForeach Foreach ($Item in $Array) {
-                    If (![Boolean]$Item) { Continue ArrayForeach }
-                    If ($Item -is [Hashtable]) { $String += Convert-HashTableToString -HashTable $Item }
-                    ElseIf ($Item -is [Array]) { $String += Convert-ArrayToString -Array $Item }
-                    Else { $String += "$Item" }
-                }
-                Return ($String -join " ; ")
+        Function Convert-ArrayToString {
+            Param([Array]$Array)
+            $String = @()
+            :ArrayForeach Foreach ($Item in $Array) {
+                If (![Boolean]$Item) { Continue ArrayForeach }
+                If ($Item -is [Hashtable]) { $String += Convert-HashTableToString -HashTable $Item }
+                ElseIf ($Item -is [Array]) { $String += Convert-ArrayToString -Array $Item }
+                Else { $String += "$Item" }
             }
+            Return ($String -join " ; ")
+        }
         #endregion Functions
     }
     Process {

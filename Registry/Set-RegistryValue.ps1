@@ -20,12 +20,12 @@ Function Set-RegistryValue {
         If ([Boolean]$Key) {
             $KeySplit = $key.TrimStart('\').TrimStart('/').Split('\').Split('/')
             $BaseKey = $KeySplit[0]
-            $SubKey = $KeySplit[1..$($KeySplit.Count-1)] -join '/'
+            $SubKey = $KeySplit[1..$($KeySplit.Count - 1)] -join '/'
             Remove-Variable KeySplit -ErrorAction SilentlyContinue
         }
         If ($BaseKey -like "HKEY*") {
             $BaseKeySplit = $BaseKey.Split('_')
-            $BaseKey = $BaseKeySplit[1..$($BaseKeySplit.Count-1)] -join ''
+            $BaseKey = $BaseKeySplit[1..$($BaseKeySplit.Count - 1)] -join ''
             Remove-Variable BaseKeySplit -ErrorAction SilentlyContinue
         }
         

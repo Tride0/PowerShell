@@ -16,7 +16,7 @@ Function Set-ItemName {
         [String]$Filter,
         [Int]$Depth,
         [Switch]$Force,
-        [ValidateSet('Directory','File')]$ItemType,
+        [ValidateSet('Directory', 'File')]$ItemType,
         [String]$Replace,
         [String]$ReplaceWith,
         [String]$Remove,
@@ -69,11 +69,11 @@ Function Set-ItemName {
                 $NewName = $Item.BaseName
 
                 If ([Boolean]$Replace -and [Boolean]$ReplaceWith) {
-                    $NewName = $NewName.Replace($Replace,$ReplaceWith)
+                    $NewName = $NewName.Replace($Replace, $ReplaceWith)
                 }
                 
                 If ([Boolean]$Remove) {
-                    $NewName = $NewName.Replace($Remove,'')
+                    $NewName = $NewName.Replace($Remove, '')
                 }
 
                 If ([Boolean]$Prefix -or [Boolean]$Suffix) {

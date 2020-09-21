@@ -30,7 +30,7 @@ Function Set-ACLInheritance {
     # If the ACL Inheritance doesn't match desired set it
     If ($ACL.AreAuditRulesProtected -ne !$Inherit) {
         # Set Inheritance
-        $ACL.SetAccessRuleProtection(!$Inherit,$PreserveInerhitedACEs)
+        $ACL.SetAccessRuleProtection(!$Inherit, $PreserveInerhitedACEs)
     }
     Else {
         Return "Inheritance already set to $(!$Inherit)"

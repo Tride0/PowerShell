@@ -25,9 +25,8 @@ $ADSearcher.PropertiesToLoad.Clear()
 [Void] $ADSearcher.PropertiesToLoad.Add('name')
 $ADSearcher.SizeLimit = 50
 
-Foreach ($OU in $OUs)
-{
-    Write-Progress -Activity 'Checking OUs' -Status $OU.distinguishedname -PercentComplete (($OUs.IndexOf($OU)+1)/$OUs.Count*100)
+Foreach ($OU in $OUs) {
+    Write-Progress -Activity 'Checking OUs' -Status $OU.distinguishedname -PercentComplete (($OUs.IndexOf($OU) + 1) / $OUs.Count * 100)
     Remove-Variable ObjectCount, GPOLinks, Info -ErrorAction SilentlyContinue
 
     $ADSearcher.Filter = '(|(objectclass=user)(objectclass=group))'
@@ -35,31 +34,27 @@ Foreach ($OU in $OUs)
     $ADSearcher.SearchRoot.Path = "LDAP://$($OU.distinguishedname)"
     $ObjectCount = $ADSearcher.FindAll().Count
 
-    If ($ObjectCount -eq 0)
-    {
-        If ($OU.gplink.count -gt 0)
-        {
+    If ($ObjectCount -eq 0) {
+        If ($OU.gplink.count -gt 0) {
             $GPOLinks = @()
     
-            $Links = $OU.gplink.split('\[',[StringSplitOptions]::RemoveEmptyEntries) | % {
+            $Links = $OU.gplink.split('\[', [StringSplitOptions]::RemoveEmptyEntries) | % {
                 $_.Split(';')[0]
             }
 
-            Foreach ($Link in $Links)
-            {
+            Foreach ($Link in $Links) {
                 $GPOLinks += ([ADSI]$Link).displayname
             }
             $GPOLinks = $GPOLinks -join ', '
         }
-        Else
-        {
+        Else {
             $GPOLinks = 0
         }
         
         $Info = [PSCustomObject]@{
-            OU = $($OU.distinguishedname)
+            OU          = $($OU.distinguishedname)
             ObjectCount = $ObjectCount
-            GPLinks = $GPOLinks
+            GPLinks     = $GPOLinks
         }
         Write-Output $Info
         $Info | Export-Csv -Path $ExportPath -NoTypeInformation -Force -Append

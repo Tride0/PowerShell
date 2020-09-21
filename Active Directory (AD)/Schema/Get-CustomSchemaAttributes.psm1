@@ -10,7 +10,7 @@
         Select-Object -Property Name, lDAPDisplayName, isSingleValued, attributeID, objectGUID, 
         @{Name = 'WhenCreated'; Expression = { ($_.WhenCreated).Date.ToString('yyyy-MM-dd') } }, 
         @{Name = 'WhenChanged'; Expression = { ($_.WhenChanged).Date.ToString('yyyy-MM-dd') } }, 
-        @{Name = 'AttributeType';
+        @{Name         = 'AttributeType';
             Expression = {
                 $oMSyntax = $_.oMSyntax
                 $OMObjectClass = $_.OMObjectClass -join '.'

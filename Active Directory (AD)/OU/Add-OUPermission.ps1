@@ -83,20 +83,20 @@ Begin {
     
     $rootdse = Get-ADRootDSE
     $GuidMap = @{}
-    Get-ADObject -SearchBase ($rootdse.SchemaNamingContext) -LDAPFilter “(schemaidguid=*)” -Properties lDAPDisplayName,schemaIDGUID | ForEach-Object { $GuidMap[$_.lDAPDisplayName] = [System.GUID]$_.schemaIDGUID }
-    Get-ADObject -SearchBase ($rootdse.ConfigurationNamingContext) -LDAPFilter “(&(objectclass=controlAccessRight)(rightsguid=*))” -Properties displayName,rightsGuid | ForEach-Object { $GuidMap[$_.displayName] = [System.GUID]$_.rightsGuid }
+    Get-ADObject -SearchBase ($rootdse.SchemaNamingContext) -LDAPFilter “(schemaidguid=*)” -Properties lDAPDisplayName, schemaIDGUID | ForEach-Object { $GuidMap[$_.lDAPDisplayName] = [System.GUID]$_.schemaIDGUID }
+    Get-ADObject -SearchBase ($rootdse.ConfigurationNamingContext) -LDAPFilter “(&(objectclass=controlAccessRight)(rightsguid=*))” -Properties displayName, rightsGuid | ForEach-Object { $GuidMap[$_.displayName] = [System.GUID]$_.rightsGuid }
 
     If (!(Test-Path -Path $CSVPath)) {
         [PSCustomObject]@{
-            OU = ''
-            AccessGroupName = ''
-            Permission = ([System.DirectoryServices.ActiveDirectoryRights].GetEnumNames() -join ' ; ')
-            PermissionType = ([System.Security.AccessControl.AccessControlType].GetEnumNames() -join ', ')
+            OU                  = ''
+            AccessGroupName     = ''
+            Permission          = ([System.DirectoryServices.ActiveDirectoryRights].GetEnumNames() -join ' ; ')
+            PermissionType      = ([System.Security.AccessControl.AccessControlType].GetEnumNames() -join ', ')
             InheritedObjectType = ''
-            ObjectType = ''
-            Inheritance = ([System.DirectoryServices.ActiveDirectorySecurityInheritance].GetEnumNames() -join ', ')
+            ObjectType          = ''
+            Inheritance         = ([System.DirectoryServices.ActiveDirectorySecurityInheritance].GetEnumNames() -join ', ')
         } | 
-            Export-Csv -Path $CSVPath -NoTypeInformation -Force
+        Export-Csv -Path $CSVPath -NoTypeInformation -Force
         & $CSVPath
         Write-Host $GuidMap.Keys | Sort-Object
         Write-Host "`nThe above values are options for ObjectType and InheritedObjectType."
@@ -124,8 +124,8 @@ Begin {
                 Param($DN)
                 $SplitDN = $DN.split(',')
                 Return @{
-                    OU = $DN
-                    Parent = $SplitDN[1..($SplitDN.Count-1)] -join ','
+                    OU        = $DN
+                    Parent    = $SplitDN[1..($SplitDN.Count - 1)] -join ','
                     ChildName = $SplitDN[0].Split('=')[1]
                 }
             }
