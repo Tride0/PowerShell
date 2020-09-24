@@ -142,6 +142,33 @@
             }
         } # END FUNCTION Get-GPOSettingSummary
 
+        Function Get-PermissionSummary {
+            Param($SDDLString)
+            (convertfrom-sddlstring $SDDLString).DiscretionaryAcl | 
+            ForEach-Object -Process {
+                $Split = $_.Split(':').Split('(').TrimEnd(')').Trim()
+                $PermSetList = $Split[2].split(',').Trim()
+
+                If ($PermSetlist.Contains('FullControl')) {
+                    $Permission = 'Full Control'
+                }
+                ElseIf ($PermSetList.Contains('WriteKey')) {
+                    $Permission = 'Modify'
+                }
+                ElseIf ($PermSetList.Contains('WriteAttributes')) {
+                    $Permission = 'Apply Group Policy'
+                }
+                ElseIf ($PermSetList.Contains('GenericExecute') -or $PermSetList.Contains('Read') -or $PermSetList.Contains('ReadExtendedAttributes')) {
+                    $Permission = 'Read'
+                }
+                Else {
+                    $Permission = 'Custom'
+                }
+         
+                "$($Split[1].Trim()): $($SPlit[0].Trim()): $Permission"
+            }
+        } # END FUNCTION Get-PermissionSummary
+
         #endregion Functions
     }
     Process {

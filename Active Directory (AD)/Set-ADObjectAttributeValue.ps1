@@ -4,7 +4,7 @@ Function Set-ADObjectAttributeValue {
             Created By: Kyle Hewitt
             Contact: PushPishPoSh@gmail.com
             Created On: 09-20-2020
-            Version: 2020.09.20
+            Version: 2020.09.23
 
         .DESCRIPTION
             Set values on attributes on an AD Object
@@ -39,25 +39,17 @@ Function Set-ADObjectAttributeValue {
                 $Key,
                 $Value
             )
-            If ($ADObject.$Key -eq $Value) {
-                Return 0
-            }
-            If ($ADObject.Properties.Contains($Key)) {
+            If ($ADObject.$Key -ne $Value) {
                 Try {
-                    $ADObject.Properties[$Key].Value = $NewValue
-                    Return 0
+                    If ($ADObject.Properties.Contains($Key)) {
+                        $ADObject.$Key = $Value
+                    }
+                    Else {
+                        $ADObject.Properties[$Key].Add($Value)
+                    }
                 }
                 Catch {
-                    Throw "Failed to set '$Value' to '$Key'. Error: $_"
-                }
-                
-            }
-            Else {
-                Try {
-                    $ADObject.Properties[$Key].Add($Value)
-                    Return 0
-                }
-                Catch {
+                    $Script:EntryResults.Notes += "Failed to set '$Value' to '$Key'. Error: $_"
                     Throw "Failed to set '$Value' to '$Key'. Error: $_"
                 }
             }
@@ -76,7 +68,12 @@ Function Set-ADObjectAttributeValue {
         }
 
         # Actually make changes to object
-        $ADObject.CommitChanges()
+        Try {
+            $ADObject.CommitChanges()
+        }
+        Catch {
+            $EntryResults.Notes += "Failed to Set values on user. Error: $_"
+        }
     }
     End {
         $ADObject.Close()
