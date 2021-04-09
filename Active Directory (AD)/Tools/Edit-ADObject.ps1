@@ -5,7 +5,7 @@ Function Edit-ADObjects {
         .NOTES
             Created By: Kyle Hewitt
             Created On: 2020/05/22
-            Version: 2020.06.01
+            Version: 2020.11.25
     #>
     Param(
         [String] $CSVPath = "$PSScriptRoot\Edit_ADObjects.csv",
@@ -17,7 +17,7 @@ Function Edit-ADObjects {
         [String] $FailureLogPath = "$PSScriptRoot\Edit_ADObjects_Failures_$(Get-Date -Format yyyyMMdd_hhmmss).csv",
         
         [Boolean] $Log = $True,
-        [String] $LogPath = "$PSScriptRoot\Edit_ADObjects_Log_$(Get-Date -Format yyyyMMdd_hhmmss).csv",
+        [String] $LogPath = "$PSScriptRoot\Edit_ADObjects_Log_$(Get-Date -Format yyyyMMdd_hhmmss).txt",
         
         [Boolean] $PassThru = $True
     )
@@ -30,15 +30,15 @@ Function Edit-ADObjects {
                 $Note
             )
             If (!$FailureLog) { Return }
-
             $Info.Note = $Note
             [PSCustomObject](Format-Information -Object $Info -Headers $AttributeNames) |
             Export-Csv -Path $FailureLogPath -NoTypeInformation -Append -Force
         }
 
         Function Add-ToLog {
+            [cmdletbinding()]
             Param(
-                $Value,
+                [Parameter(Position=0)]$Value,
                 $Path = $LogPath,
                 $Terminal = $PassThru
             )
@@ -59,6 +59,11 @@ Function Edit-ADObjects {
                 $Object.Remove('Replace')
             }
 
+            If ($Object.Credential) {
+                $Object.RunAsUserName = $Object.Credential.UserName
+                $Object.Remove('Credential') | Out-Null
+            }
+
             Foreach ($Header in $Headers) {
                 If ($Header -eq 'Identity' -and [Boolean]$Entry.Identity) {
                     $Object.$Header = $Entry.Identity
@@ -71,11 +76,17 @@ Function Edit-ADObjects {
                 }
             }
 
+            
+
             For ($i = 0; $i -lt $Object.Keys.Count; $i++) {
                 $Key = ([string[]]$Object.Keys)[$i]
                 If ($Object.$Key -is [Array]) {
                     $Object.$Key = $Object.$Key -join "`n"
-                }   
+                }
+                ElseIf ($Object.$Key -is [System.Security.SecureString]) {
+                    $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR(($Object.$Key))
+                    $Object.$Key = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
+                }
             }
 
                 
@@ -99,7 +110,7 @@ Function Edit-ADObjects {
 
         # Get List of available parameters so they can be used on the correct cmd let and parameter
         $SetADObjectAvailableParameters = (Get-Command Set-ADObject).Parameters.GetEnumerator() | 
-        Where-Object -FilterScript { 'String', 'Nullable`1' -contains $_.Value.ParameterType.Name -and $_.key -notlike "*Variable" } | 
+        Where-Object -FilterScript { 'String', 'Nullable`1','SecureString' -contains $_.Value.ParameterType.Name -and $_.key -notlike "*Variable" } | 
         Select-Object -ExpandProperty Key
 
         Add-ToLog -Value "Checking if CSV File Exists"
@@ -199,14 +210,14 @@ Function Edit-ADObjects {
                 $Domain = ($SetADObjectParameters.Path.Split(',') -like "DC=*").Replace('DC=', '') -join '.'
 
                 # Verify Domain exists and is reachable
-                If ([adsi]::exists("LDAP://$DomainRoot")) {
+                If (![adsi]::exists("LDAP://$DomainRoot")) {
                     Add-ToFailureLog -Info $SetADObjectParameters -Note "Domain '$Domain' not found"
                     Add-ToLog -Value "Domain '$Domain' not found. Skipping."
                     Continue CSVInfoForEach
                 }
 
                 # Verify AD OU exists
-                If ([adsi]::Exists("LDAP://$($SetADObjectParameters.Path)")) {
+                If (![adsi]::Exists("LDAP://$($SetADObjectParameters.Path)")) {
                     Add-ToFailureLog -Info $SetADObjectParameters -Note "AD OU in Path column does not exist $($Entry.Path)"
                     Add-ToLog -Value "$($SetADObjectParameters.Path) does not exist. Skipping."
                     Continue CSVInfoForEach
@@ -221,7 +232,7 @@ Function Edit-ADObjects {
                         $Global:DCs.$Domain = $DomainObject.DomainControllers.Name | Get-Random
                     }
                     Catch {
-                        Add-ToLog "Failed to get Domain Controller from $Domain. Error: $_"
+                        Add-ToLog -Value "Failed to get Domain Controller from $Domain. Error: $_"
                     }
                     $ErrorActionPreference = 'Continue'
                 }
@@ -240,7 +251,7 @@ Function Edit-ADObjects {
                     $SetADObjectParameters.Server = $Global:DCs.$Domain
                 }
                 Catch {
-                    Add-ToLog "Failed to get Domain Controller from Current Domain. Error: $_"
+                    Add-ToLog -Value "Failed to get Domain Controller from Current Domain. Error: $_"
                 }
                 $ErrorActionPreference = 'Continue'
             }
@@ -261,7 +272,7 @@ Function Edit-ADObjects {
 
             # Edit AD Object
             Try {
-                Add-ToLog "Setting $($Entry.Identity)."
+                Add-ToLog -Value "Setting $($Entry.Identity)."
                 Get-ADObject -ldapFilter "(|(samaccountname=$($Entry.Identity))(userprincipalname=$($Entry.Identity))(distinguishedname=$($Entry.Identity)))" -ErrorAction Stop | Set-ADObject @EditADObjectParameters -ErrorAction Stop
             }
             Catch {

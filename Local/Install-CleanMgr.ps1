@@ -16,7 +16,7 @@ If (Test-Path -Path "C:\windows\system32\cleanmgr.exe") {
 }
 
 If ($OS -notlike "*2008*") {
-    Write-Warning "This script is not for your OS. $OS"
+    Write-Warning "This script is not for your OS. Operating System: $OS"
     Continue
 }
 

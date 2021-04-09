@@ -2,7 +2,7 @@
     .NOTES
         Created By: Kyle Hewitt
         Created On: 05-18-2020
-        Version: 2020.08.27
+        Version: 2020.10.02
 
     .DESCRIPTION
         Script will backup and notify of changes since previous backup
@@ -174,61 +174,9 @@ Begin {
             $Current
         )
         $Changes = @()
-        $PreviousPerms = (convertfrom-sddlstring $Previous.GPO.SecurityDescriptor.sddl.InnerText).DiscretionaryAcl | 
-        ForEach-Object -Process {
-            $Split = $_.Split(':').Split('(').TrimEnd(')').Trim()
-            $PermSetList = $Split[2].split(',').Trim()
-
-            If ($PermSetlist.Contains('Delete')) {
-                $Permission = 'Edit Settings, Delete, Modify Security'
-            }
-            ElseIf ($PermSetList.Contains('WriteKey')) {
-                $Permission = 'Edit Settings'
-            }
-            ElseIf ($PermSetList.Contains('WriteAttributes')) {
-                $Permission = 'Apply Group Policy'
-            }
-            ElseIf ($PermSetList.Contains('GenericExecute')) {
-                $Permission = 'Read'
-            }
-            Else {
-                $Permission = 'Custom'
-            }
-         
-            [PSCustomObject]@{
-                Id         = $SPlit[0].Trim()
-                Type       = $Split[1].Trim()
-                Permission = $Permission
-            }
-        }
-
-        $CurrentPerms = (convertfrom-sddlstring $Current.GPO.SecurityDescriptor.sddl.InnerText).DiscretionaryAcl | 
-        ForEach-Object -Process {
-            $Split = $_.Split(':').Split('(').TrimEnd(')').Trim()
-            $PermSetList = $Split[2].split(',').Trim()
-
-            If ($PermSetlist.Contains('Delete')) {
-                $Permission = 'Edit Settings, Delete, Modify Security'
-            }
-            ElseIf ($PermSetList.Contains('WriteKey')) {
-                $Permission = 'Edit Settings'
-            }
-            ElseIf ($PermSetList.Contains('WriteAttributes')) {
-                $Permission = 'Apply Group Policy'
-            }
-            ElseIf ($PermSetList.Contains('GenericExecute')) {
-                $Permission = 'Read'
-            }
-            Else {
-                $Permission = 'Custom'
-            }
-         
-            [PSCustomObject]@{
-                Id         = $SPlit[0].Trim()
-                Type       = $Split[1].Trim()
-                Permission = $Permission
-            }
-        }
+        
+        $PreviousPerms = Get-PermissionSummary $Previous.GPO.SecurityDescriptor.sddl.InnerText
+        $CurrentPerms = Get-PermissionSummary $Current.GPO.SecurityDescriptor.sddl.InnerText
 
         If (![Boolean]$PreviousPerms) {
             $PreviousPerms = ''
@@ -445,7 +393,7 @@ Begin {
         Param($GPO)
         $ComputerSettings = Get-GPOSettingSummary -GPO $GPO.gpo.Computer.ExtensionData.Extension -ToReadableString
         $UserSettings = Get-GPOSettingSummary -GPO $GPO.gpo.User.ExtensionData.Extension -ToReadableString
-        $Permissions = Get-PermissionSummary -SDDLString $GPO.GPO.SecurityDescriptor.sddl.InnerText        
+        $Permissions = Get-PermissionSummary -SDDLString $GPO.GPO.SecurityDescriptor.sddl.InnerText -String
 
         $Links = Foreach ($Link in $GPO.GPO.LinksTo) {
             "$($Link.SOMPath) - Enabled: $($Link.Enabled) - Enforced: $($Link.NoOverride)"
@@ -456,7 +404,7 @@ Begin {
     } # END FUNCTION Get-GPOSummary
 
     Function Get-PermissionSummary {
-        Param($SDDLString)
+        Param($SDDLString,[Switch]$String)
         (convertfrom-sddlstring $SDDLString).DiscretionaryAcl | 
         ForEach-Object -Process {
             $Split = $_.Split(':').Split('(').TrimEnd(')').Trim()
@@ -465,11 +413,14 @@ Begin {
             If ($PermSetlist.Contains('FullControl')) {
                 $Permission = 'Full Control'
             }
+            ElseIf ($PermSetList.Contains('WriteAttributes')) {
+                $Permission = 'Apply Group Policy'
+            }
             ElseIf ($PermSetList.Contains('WriteKey')) {
                 $Permission = 'Modify'
             }
-            ElseIf ($PermSetList.Contains('WriteAttributes')) {
-                $Permission = 'Apply Group Policy'
+            ElseIf ($PermSetList.Contains('Delete') -and $Split[1].Trim() -notlike "*Allow*") {
+                $Permission = 'Delete'
             }
             ElseIf ($PermSetList.Contains('GenericExecute') -or $PermSetList.Contains('Read') -or $PermSetList.Contains('ReadExtendedAttributes')) {
                 $Permission = 'Read'
@@ -478,7 +429,16 @@ Begin {
                 $Permission = 'Custom'
             }
          
-            "$($Split[1].Trim()): $($SPlit[0].Trim()): $Permission"
+            If ($String.IsPresent) {
+                "$($Split[1].Trim()): $($Split[0].Trim()): $Permission"
+            }
+            Else {
+                [PSCustomObject]@{
+                    Id = $Split[0].Trim()
+                    Type = $Split[1].Trim()
+                    Permission = $Permission
+                }
+            }
         }
     } # END FUNCTION Get-PermissionSummary
     
@@ -520,7 +480,7 @@ Begin {
 
                         # If Permissions get read-able summary
                         ElseIf ([Boolean]$CurrentChild.$SettingName.SDDL) {
-                            $HashTable.$SettingName = (Get-PermissionSummary -SDDLString $CurrentChild.$SettingName.SDDL.InnerText) -join " ; "
+                            $HashTable.$SettingName = (Get-PermissionSummary -SDDLString $CurrentChild.$SettingName.SDDL.InnerText -String) -join " ; "
                         }
 
                         # Catch All
@@ -752,4 +712,9 @@ Process {
     ElseIf ([Boolean]$LastBackUpList) {
         Remove-Item -Path $BackUpReportPath -Recurse -Force
     }
+}
+End {
+    Get-ChildItem -Path $BackUpLocation -Directory -Depth 2 -Recurse -Force |
+        Where-Object -FilterScript { (Get-ChildItem -Path $_.FullName -File -Recurse -Force | Select-Object -First 1).Count -eq 0 } |
+        Remove-Item
 }

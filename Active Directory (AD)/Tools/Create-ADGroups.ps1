@@ -5,7 +5,7 @@
         .NOTES
             Created By: Kyle Hewitt
             Created On: 2020/05/08
-            Version: 2020.06.01
+            Version: 2020.11.25
     #>
     Param(
         [String] $CSVPath = "$PSScriptRoot\Create_ADGroups.csv",
@@ -17,7 +17,7 @@
         [String] $FailureLogPath = "$PSScriptRoot\Create_ADGroups_Failures_$(Get-Date -Format yyyyMMdd_hhmmss).csv",
         
         [Boolean] $Log = $True,
-        [String] $LogPath = "$PSScriptRoot\Create_ADGroups_Log_$(Get-Date -Format yyyyMMdd_hhmmss).csv",
+        [String] $LogPath = "$PSScriptRoot\Create_ADGroups_Log_$(Get-Date -Format yyyyMMdd_hhmmss).txt",
         
         [Boolean] $PassThru = $True
     )
@@ -30,15 +30,15 @@
                 $Note
             )
             If (!$FailureLog) { Return }
-
             $Info.Note = $Note
             [PSCustomObject](Format-Information -Object $Info -Headers $AttributeNames) |
             Export-Csv -Path $FailureLogPath -NoTypeInformation -Append -Force
         }
 
         Function Add-ToLog {
+            [cmdletbinding()]
             Param(
-                $Value,
+                [Parameter(Position=0)]$Value,
                 $Path = $LogPath,
                 $Terminal = $PassThru
             )
@@ -57,6 +57,11 @@
                     $Object.($Attr.Key) = $Attr.Value
                 }
                 $Object.Remove('OtherAttributes')
+            }
+
+            If ($Object.Credential) {
+                $Object.RunAsUserName = $Object.Credential.UserName
+                $Object.Remove('Credential') | Out-Null
             }
 
             Foreach ($Header in $Headers) {
@@ -85,7 +90,7 @@
 
         # Get List of available parameters so they can be used on the correct cmd let and parameter
         $NewADGroupAvailableParameters = (Get-Command New-ADGroup).Parameters.GetEnumerator() | 
-        Where-Object -FilterScript { 'String', 'String[]', 'Nullable`1' -contains $_.Value.ParameterType.Name -and $_.key -notlike "*Variable" } | 
+        Where-Object -FilterScript { 'String', 'String[]', 'Nullable`1', 'SecureString' -contains $_.Value.ParameterType.Name -and $_.key -notlike "*Variable" } | 
         Select-Object -ExpandProperty Key
 
         Add-ToLog -Value "Checking if CSV File Exists"
@@ -190,14 +195,14 @@
                 $Domain = ($NewADGroupParameters.Path.Split(',') -like "DC=*").Replace('DC=', '') -join '.'
 
                 # Verify Domain exists and is reachable
-                If ([adsi]::exists("LDAP://$DomainRoot")) {
+                If (![adsi]::exists("LDAP://$DomainRoot")) {
                     Add-ToFailureLog -Info $NewADGroupParameters -Note "$Domain not found"
                     Add-ToLog -Value "$Domain not found. Skipping."
                     Continue CSVInfoForEach
                 }
 
                 # Verify AD OU exists
-                If ([adsi]::Exists("LDAP://$($NewADGroupParameters.Path)")) {
+                If (![adsi]::Exists("LDAP://$($NewADGroupParameters.Path)")) {
                     Add-ToFailureLog -Info $NewADGroupParameters -Note "AD OU in Path column does not exist $($Entry.Path)"
                     Add-ToLog -Value "$($NewADGroupParameters.Path) does not exist. Skipping."
                     Continue CSVInfoForEach
@@ -212,7 +217,7 @@
                         $Global:DCs.$Domain = $DomainObject.DomainControllers.Name | Get-Random
                     }
                     Catch {
-                        Add-ToLog "Failed to get Domain Controller from $Domain. Error: $_"
+                        Add-ToLog -Value "Failed to get Domain Controller from $Domain. Error: $_"
                     }
                     $ErrorActionPreference = 'Continue'
                 }
@@ -231,7 +236,7 @@
                     $NewADGroupParameters.Server = $Global:DCs.$Domain
                 }
                 Catch {
-                    Add-ToLog "Failed to get Domain Controller from Current Domain. Error: $_"
+                    Add-ToLog -Value "Failed to get Domain Controller from Current Domain. Error: $_"
                 }
                 $ErrorActionPreference = 'Continue'
             }
@@ -253,7 +258,7 @@
 
             # Create AD Group Object
             Try {
-                Add-ToLog "Creating $($NewADGroupParameters.Name)."
+                Add-ToLog -Value "Creating $($NewADGroupParameters.Name)."
                 New-ADGroup @NewADGroupParameters -ErrorAction Stop
             }
             Catch {

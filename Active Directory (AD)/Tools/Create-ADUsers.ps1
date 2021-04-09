@@ -5,7 +5,7 @@
         .NOTES
             Created By: Kyle Hewitt
             Created On: 2020/05/08
-            Version: 2020.06.01
+            Version: 2020.11.25
     #>
     Param(
         [String] $CSVPath = "$PSScriptRoot\Create_ADUsers.csv",
@@ -17,7 +17,7 @@
         [String] $FailureLogPath = "$PSScriptRoot\Create_ADUsers_Failures_$(Get-Date -Format yyyyMMdd_hhmmss).csv",
         
         [Boolean] $Log = $True,
-        [String] $LogPath = "$PSScriptRoot\Create_ADUsers_Log_$(Get-Date -Format yyyyMMdd_hhmmss).csv",
+        [String] $LogPath = "$PSScriptRoot\Create_ADUsers_Log_$(Get-Date -Format yyyyMMdd_hhmmss).txt",
         
         [Boolean] $PassThru = $True
     )
@@ -45,8 +45,9 @@
         }
 
         Function Add-ToLog {
+            [cmdletbinding()]
             Param(
-                $Value,
+                [Parameter(Position=0)]$Value,
                 $Path = $LogPath,
                 $Terminal = $PassThru
             )
@@ -63,19 +64,27 @@
 
             # Convert Secure String to PlainText PW
             Foreach ($Header in $PasswordHeaders) {
-                $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR(($Object.$Header))
-                $Object.$Header = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
+                If ($Object.$Header -is [System.Security.SecureString]) {
+                    $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR(($Object.$Header))
+                    $Object.$Header = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
+                }
             }
 
+            # Add Other Attributes as their own column
             If ([Boolean]$Object.OtherAttributes) {
                 Foreach ($Attr in $Object.OtherAttributes.GetEnumerator()) {
                     $Object.($Attr.Key) = $Attr.Value
                 }
                 $Object.Remove('OtherAttributes')
             }
+            
+            If ($Object.Credential) {
+                $Object.RunAsUserName = $Object.Credential.UserName
+                $Object.Remove('Credential') | Out-Null
+            }
 
             Foreach ($Header in $AllHeaders) {
-                If (![Boolean]$Object.$Header) {
+                If (![Boolean]$Object.$Header -or $null -eq $Object.$Header) {
                     $Object.$Header = ''
                 }
             }
@@ -102,7 +111,7 @@
 
         # Get List of available parameters so they can be used on the correct cmd let and parameter
         $NewADUserAvailableParameters = (Get-Command New-ADUser).Parameters.GetEnumerator() | 
-        Where-Object -FilterScript { 'String', 'String[]', 'Nullable`1' -contains $_.Value.ParameterType.Name -and $_.key -notlike "*Variable" } | 
+        Where-Object -FilterScript { 'String', 'String[]', 'Nullable`1','SecureString' -contains $_.Value.ParameterType.Name -and $_.key -notlike "*Variable" } | 
         Select-Object -ExpandProperty Key
 
         Add-ToLog -Value "Checking if CSV File Exists"
@@ -168,14 +177,14 @@
 
             # Create hashtables to splat onto the cmdlets
             :AttributeNamesForEach Foreach ($Attribute in $AttributeNames) {
-                If (![Boolean]$Entry.$Attribute) { Continue AttributeNamesForEach }
+                If (![Boolean]$Entry.$Attribute -or $Attribute -eq 'RunAsUserName' -or $Attribute -eq 'RunAsPassword') { Continue AttributeNamesForEach }
                 
                 If ('False', 'True' -icontains $Entry.$Attribute) {
                     $Entry.$Attribute = Get-Variable -Name $Entry.$Attribute -ValueOnly
                 }
 
                 If ($NewADUserAvailableParameters -Contains $Attribute) {
-                    Add-ToLog -Value "Adding $Attribute to NewADUser cmdlet Parameters with a value of $($Entry.$Attribute)." -Terminal $False
+                    Add-ToLog -Value "Adding $Attribute to NewADUser cmdlet Parameters with a value of `"$($Entry.$Attribute)`"." -Terminal $False
                     $NewADUserParameters.$Attribute = $Entry.$Attribute
                 }
                 Else {
@@ -196,14 +205,14 @@
                 $Domain = ($NewADUserParameters.Path.Split(',') -like "DC=*").Replace('DC=', '') -join '.'
 
                 # Verify Domain exists and is reachable
-                If ([adsi]::exists("LDAP://$DomainRoot")) {
+                If (![adsi]::exists("LDAP://$DomainRoot")) {
                     Add-ToFailureLog -Info $NewADUserParameters -Note "$Domain not found"
                     Add-ToLog -Value "$Domain not found. Skipping."
                     Continue CSVInfoForEach
                 }
 
                 # Verify AD OU exists
-                If ([adsi]::Exists("LDAP://$($NewADUserParameters.Path)")) {
+                If (![adsi]::Exists("LDAP://$($NewADUserParameters.Path)")) {
                     Add-ToFailureLog -Info $NewADUserParameters -Note "AD OU in Path column does not exist $($Entry.Path)"
                     Add-ToLog -Value "$($NewADUserParameters.Path) does not exist. Skipping."
                     Continue CSVInfoForEach
@@ -218,7 +227,7 @@
                         $Global:DCs.$Domain = $DomainObject.DomainControllers.Name | Get-Random
                     }
                     Catch {
-                        Add-ToLog "Failed to get Domain Controller from $Domain. Error: $_"
+                        Add-ToLog -Value "Failed to get Domain Controller from $Domain. Error: $_"
                     }
                     $ErrorActionPreference = 'Continue'
                 }
@@ -237,7 +246,7 @@
                     $NewADUserParameters.Server = $Global:DCs.$Domain
                 }
                 Catch {
-                    Add-ToLog "Failed to get Domain Controller from Current Domain. Error: $_"
+                    Add-ToLog -Value "Failed to get Domain Controller from Current Domain. Error: $_"
                 }
                 $ErrorActionPreference = 'Continue'
             }
@@ -272,10 +281,13 @@
                 Add-ToLog -Value "Generating Random Password into a Secure String."
                 $NewADUserParameters.AccountPassword = Generate-RandomPassword | ConvertTo-SecureString -AsPlainText -Force
             }
+            Else {
+                $NewADUserParameters.AccountPassword = $NewADUserParameters.AccountPassword | ConvertTo-SecureString -AsPlainText -Force
+            }
 
             # Create AD User Object
             Try {
-                Add-ToLog "Creating $($NewADUserParameters.Name)."
+                Add-ToLog -Value "Creating $($NewADUserParameters.Name)."
                 New-ADUser @NewADUserParameters -ErrorAction Stop
             }
             Catch {

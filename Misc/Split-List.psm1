@@ -1,28 +1,34 @@
 Function Split-List {
-    <#
-        .NOTES
-            Created By: Kyle Hewitt
-            Created On: 08-21-2020
-            Version: 2020.08.21
-
-        .DESCRIPTION
-            Splits list into multiple equal lists
-    #>
     Param(
         [ValidateScript( { $_ -like "*:\*" -or $_ -like "\\*\*" })][String]$ListPath,
+        [array]$List,
         $SplitCount = 2
     )
+    If ($ListPath) {
+        Try {
+            $ListItem = Get-Item -Path $ListPath -ErrorAction Stop
+        }
+        Catch { Throw $_ }
 
-    Try {
-        $ListItem = Get-Item -Path $ListPath -ErrorAction Stop
+        Try {
+            $List = Get-Content -Path $ListPath -ErrorAction Stop
+        }
+        Catch { Throw $_ }
+
+        $Folder = $(Split-Path $ListItem.FullName -Parent)
+        $BaseName = $($ListItem.BaseName)
+        $Extension = $($ListItem.Extension)
     }
-    Catch { Throw $_ }
-
-    Try {
-        $List = Get-Content -Path $ListPath -ErrorAction Stop
+    Else {
+        $Folder = '.'
+        $BaseName = "SplitList_$(Get-Date -Format yyyyMMdd_hhmmss)"
+        If ($List[0] -is [hashtable] -or $List[0] -is [pscustomobject]) {
+            $Extension = '.csv'
+        }
+        Else {
+            $Extension = '.txt'
+        }
     }
-    Catch { Throw $_ }
-
     $Step = $List.Count / $SplitCount
 
     $First = 0
@@ -30,7 +36,14 @@ Function Split-List {
     For ($i = 0; $i -lt $SplitCount; $i++) {
         $NewList = $List[$First..$Last]
 
-        Set-Content -Value $NewList -Path "$(Split-Path $ListItem.FullName -Parent)\$($ListItem.BaseName)_$i`_$($ListItem.Extension)" -Force
+        $Path = "$Folder\$BaseName`_$i`_$Extension"
+
+        If ($Extension -eq '.csv') {
+            $NewList | Export-csv -Path $Path -NoTypeInformation -Force
+        }
+        Else {
+            Set-Content -Value $NewList -Path $Path -Force
+        }
 
         $First = $First + $Step
         $Last = $Last + $Step

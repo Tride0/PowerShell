@@ -184,7 +184,7 @@
             If ($Report -like "*$String*") {
                 Write-Host $GPO.DisplayName
                 $Report = ([xml]$Report)
-                $GPOSettings = (Get-GPOSettingSummary -GPO $Report.GPO.User) + (Get-GPOSettingSummary -GPO $Report.GPO.Computer)
+                [Array]$GPOSettings = (Get-GPOSettingSummary -GPO $Report.GPO.User) + (Get-GPOSettingSummary -GPO $Report.GPO.Computer)
                 Foreach ($Setting in $GPOSettings) {
                     $Setting.GPO = $GPO.DisplayName
                     
@@ -206,10 +206,7 @@
                     
                     # If String is present, output. 
                     If ($StringSetting -like "*$String*") {
-                        Write-Output $StringSetting
-                    }
-                    Else {
-                        Write-Output ($Report.Split("`n") -like "*$String*")
+                        Write-Host $StringSetting
                     }
                 }
             }

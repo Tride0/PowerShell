@@ -3,7 +3,7 @@
 
         [String[]]$ComputerName = $ENV:computername,
         [Boolean]$PassThru = $True,
-        [Boolean]$Export = $True,
+        [Boolean]$Export = $False,
         [String]$ExportPath = "$env:USERPROFILE\desktop\ComputerInfo.csv"
     )
     $WMIObjects = @(
@@ -28,7 +28,6 @@
                 Break WMI
             }
         }
-
 
         $TrustedForDelegation = Get-ADComputer $Computer -Properties TrustedForDelegation | Select-Object -ExpandProperty TrustedForDelegation
     
@@ -63,7 +62,8 @@
         }
         If ($Export) {
             $Information | Export-csv $ExportPath -NoTypeInformation -Append -Force
-            & $ExportPath
         }
+
     }
+    if ($Export) { & $ExportPath }
 }
