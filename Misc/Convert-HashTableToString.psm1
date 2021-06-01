@@ -1,47 +1,60 @@
-Function Convert-HashTableToString {
+Function Convert-HashToString {
     <#
         .NOTES
             Created By: Kyle Hewitt
-            Created On: 08-28-2020
-            Version: 2020.08.28
+            Created On: 04-12-2021
+            Version: 2021.04.12
 
         .DESCRIPTION
+            This function will consolidate every item in a hashtable into a string
     #>
-    Param (
-        [Hashtable[]]$HashTable,
-        $Depth = 1
+    param(
+        $HashTable,
+        $KeyDelimiter = "`n",
+        $KeyValueSeperator = '=',
+        $KeyEncapsulator = "'", 
+        $ValueEncapsulator = "'"
     )
-    Begin {
-        #region Functions
+    Begin { 
+        [System.Collections.ArrayList]$String = @()
         Function Convert-ArrayToString {
-            Param([Array]$Array)
-            $String = @()
-            :ArrayForeach Foreach ($Item in $Array) {
-                If (![Boolean]$Item) { Continue ArrayForeach }
-                If ($Item -is [Hashtable]) { $String += Convert-HashTableToString -HashTable $Item }
-                ElseIf ($Item -is [Array]) { $String += Convert-ArrayToString -Array $Item }
-                Else { $String += "$Item" }
+            Param (
+                [Array]$Array, 
+                $ArrayDelimiter="`n", 
+                $ValueDelimiter="`n"
+            )
+            Begin {
+                [System.Collections.ArrayList]$String = @()
             }
-            Return ($String -join " ; ")
+            Process {
+                [System.Collections.ArrayList]$ArrayString += Foreach ($Item in $Array) {
+                    If ($Item -is [System.Collections.Hashtable] -or $Item -is [System.Management.Automation.PSObject]) {
+                        Convert-HashToString -HashTable $Item
+                    }
+                    ElseIf ($Item -is [Array]) {
+                        Convert-ArrayToString -Array $Item
+                    }
+                    Else {
+                        $Item
+                    }
+                }
+                $String += ($ArrayString -join $ValueDelimiter)
+            }
+            End { Return ($String -join $KeyDelimiter) }
         }
-        #endregion Functions
     }
     Process {
-        $String = @()
-        :Keys Foreach ($Key in $HashTable.Keys) {
-            If (![Boolean]$Key -or ![Boolean]$HashTable.$Key) { Continue KeysForeach }
-            If ($HashTable.$Key -is [HashTable]) { 
-                $String += "$("`t"*($Depth-1))$Key :: $("`t"*$Depth)$(Convert-HashTableToString -HashTable $HashTable.$Key -Depth ($Depth+1))"
-            }
-            ElseIf ($HashTable.$Key -is [Array]) { 
-                $String += "$("`t"*($Depth-1))$Key :: $(Convert-ArrayToString -Array $HashTable.$Key)"
+        If ([Boolean]$HashTable.Keys) { $Keys = $HashTable.keys }
+        Else { $Keys = $HashTable.psobject.Properties.name }
+        
+        Foreach ($Key in $Keys) {
+            If ($HashTable.$Key -is [array]) {
+                $String += "$KeyEncapsulator$($Key)$KeyEncapsulator $KeyValueSeperator $ValueEncapsulator$(Convert-ArrayToString -Array $HashTable.$Key -ArrayDelimiter "`n" -ValueDelimiter ',')$ValueEncapsulator" 
             }
             Else {
-                $Value = "$("`t"*($Depth-1))$Key :: $($HashTable.$key)"
-                If ($Depth -gt 1 -and $Key -eq $HashTable.Keys[0]) { $Value = "`n$Value" }
-                $String += $Value 
-            } 
+                $String += "$KeyEncapsulator$($Key)$KeyEncapsulator $KeyValueSeperator $ValueEncapsulator$($HashTable.$Key)$ValueEncapsulator" 
+            }
         }
-        Return $($String -join "`n")
     }
+    End { Return ($String -join $KeyDelimiter) }
 }
