@@ -12,18 +12,18 @@
             Create, Delete without Modify
                 . Creating a user requires some modify permissions. Specifically the permission to set the password or to disable the user.
                 Permission = CreateChild, DeleteChild
-                ObjectType = user,computer,group,etc.
+                ObjectType = user, computer, group, etc.
                 Inheritance = All
 
             Modify without Full Control
                 Permission = CreateChild, DeleteChild, Self, ReadProperty, WriteProperty
                 Inheritance = Descendents
-                InheritedObjectType = user,computer,group,etc.
+                InheritedObjectType = user, computer, group, etc.
 
             Create, Delete, Modify
                 . Two Entries
                 1 Permission = CreateChild, DeleteChild
-                1 ObjectType = user,computer,group,etc.
+                1 ObjectType = user, computer, group, etc.
                 1 Inheritance = All
 
                 2 Permission = CreateChild, DeleteChild, Self, ReadProperty, WriteProperty
@@ -57,7 +57,7 @@
 
             Group/User Memberof
                 Permission = ReadProperty, WriteProperty
-                InheritedObjectType = Group
+                InheritedObjectType = Group, User
                 ObjectType = memberof
 
             Link Unlink GPO
