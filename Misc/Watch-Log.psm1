@@ -1,0 +1,1 @@
+function watch-log ($FilePath) { Get-Content $FilePath -Wait -Tail 1 }
