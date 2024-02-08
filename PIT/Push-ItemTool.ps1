@@ -190,11 +190,11 @@ Remove-Variable Temp, ExcludedTemp -ErrorAction SilentlyContinue
 $Temp = $False
 Switch ($null) {
     { $Execute.Count -eq 0 } {
-        Write-Host "$`Execute does not contain a value." -ForegroundColor Red
+        Write-Host '$Execute does not contain a value.' -ForegroundColor Red
         $Temp = $True
     }
     { $Copy.Count -eq 0 } {
-        Write-Host "$`Copy does not contain a value." -ForegroundColor Red
+        Write-Host '$Copy does not contain a value.' -ForegroundColor Red
         $Temp = $True
     }
     { $Temp } {
@@ -244,7 +244,7 @@ Function Copy-File ([String]$SourcePath, [String]$DestinationPath) {
 }
 
 
-Function Log-Failure ($Computer, $PushItem, $FailureInfo, $Continue = $True) {
+Function Out-FailureLog ($Computer, $PushItem, $FailureInfo, $Continue = $True) {
 
     If ($LogFailures) {
         If (![Boolean]$LogFailureInfo) {
@@ -311,12 +311,12 @@ ForEach ($PushItem in $PushItems) {
             }
             Else {
                 Write-Host "Ping Status: $PingStatus" -ForegroundColor Red
-                Log-Failure -Computer $Computer -PushItem $PushItem -FailureInfo "Ping Status: $PingStatus"
+                Out-FailureLog -Computer $Computer -PushItem $PushItem -FailureInfo "Ping Status: $PingStatus"
             }
         }
         Catch {
             Write-Host 'No Ping. Skipping.' -ForegroundColor Red
-            Log-Failure -Computer $Computer -PushItem $PushItem -FailureInfo 'No Ping'
+            Out-FailureLog -Computer $Computer -PushItem $PushItem -FailureInfo 'No Ping'
         }
 
 
@@ -339,7 +339,7 @@ ForEach ($PushItem in $PushItems) {
         }
         If (![Boolean]$DriveLetter) {
             Write-Host " - Couldn't Get Drive Letter. Skipping." -ForegroundColor Red
-            Log-Failure -Computer $Computer -PushItem $PushItem -FailureInfo "Couldn't Get Drive Letter"
+            Out-FailureLog -Computer $Computer -PushItem $PushItem -FailureInfo "Couldn't Get Drive Letter"
         }
         Else {
             Write-Host " - $DriveLetter" -ForegroundColor Green -NoNewline
@@ -364,7 +364,7 @@ ForEach ($PushItem in $PushItems) {
                 }
                 If (![Boolean]$OSArch) {
                     Write-Host " - Couldn't Get OS Architecture. Skipping." -ForegroundColor Red
-                    Log-Failure -Computer $Computer -PushItem $PushItem -FailureInfo "Couldn't Get OS Architecture"
+                    Out-FailureLog -Computer $Computer -PushItem $PushItem -FailureInfo "Couldn't Get OS Architecture"
                 }
             }
             #Selects File to Push based off OSArch
@@ -409,7 +409,7 @@ ForEach ($PushItem in $PushItems) {
 
             If (![IO.File]::Exists("$CompleteDestinationPath\$([IO.Path]::GetFileName($CopyTemp))") -and ![IO.Directory]::Exists("$CompleteDestinationPath\$([IO.Path]::GetFileName($CopyTemp))")) {
                 Write-Host ', Copy Failed. Skipping.' -ForegroundColor Red
-                Log-Failure -Computer $Computer -PushItem $PushItem -FailureInfo 'Copy Failed'
+                Out-FailureLog -Computer $Computer -PushItem $PushItem -FailureInfo 'Copy Failed'
             }
             Else {
                 Write-Host ', Copied.' -ForegroundColor Green -NoNewline
@@ -444,15 +444,15 @@ ForEach ($PushItem in $PushItems) {
             Catch {
                 If ($Error[0] -like '*Access is Denied*') {
                     Write-Host ' - Access Denied. Skipping.' -ForegroundColor Red
-                    Log-Failure -Computer $Computer -PushItem $PushItem -FailureInfo 'Access Denied'
+                    Out-FailureLog -Computer $Computer -PushItem $PushItem -FailureInfo 'Access Denied'
                 }
                 ElseIf ($Error[0] -like '*RPC server is unavailable*') {
                     Write-Host ' - RPC server is unavailable. Skipping.' -ForegroundColor Red
-                    Log-Failure -Computer $Computer -PushItem $PushItem -FailureInfo 'RPC Server is unavailable'
+                    Out-FailureLog -Computer $Computer -PushItem $PushItem -FailureInfo 'RPC Server is unavailable'
                 }
                 Else {
                     Write-Host " - Couldn't Connect to $Computer. SKipping." -ForegroundColor Red
-                    Log-Failure -Computer $Computer -PushItem $PushItem -FailureInfo "Couldn't Connect to Computer"
+                    Out-FailureLog -Computer $Computer -PushItem $PushItem -FailureInfo "Couldn't Connect to Computer"
                 }
             }
 
@@ -485,7 +485,7 @@ ForEach ($PushItem in $PushItems) {
             }
             Else {
                 Write-Host " - Failure: Error Code $Status" -ForegroundColor Red
-                Log-Failure -Computer $Computer -PushItem $PushItem -FailureInfo "Couldn't Get Drive Letter" -Continue $False
+                Out-FailureLog -Computer $Computer -PushItem $PushItem -FailureInfo "Couldn't Get Drive Letter" -Continue $False
             }
         }
 
