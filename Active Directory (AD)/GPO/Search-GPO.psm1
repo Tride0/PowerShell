@@ -110,7 +110,7 @@
                     $Split = $_.Split(':').Split('(').TrimEnd(')').Trim()
                     $PermSetList = $Split[2].split(',').Trim()
 
-                    If ($PermSetlist.Contains('FullControl')) { $Permission = 'Full Control' }
+                    If ($PermSetList.Contains('FullControl')) { $Permission = 'Full Control' }
                     ElseIf ($PermSetList.Contains('WriteKey')) { $Permission = 'Modify' }
                     ElseIf ($PermSetList.Contains('WriteAttributes')) { $Permission = 'Apply Group Policy' }
                     ElseIf ($PermSetList.Contains('GenericExecute') -or $PermSetList.Contains('Read') -or $PermSetList.Contains('ReadExtendedAttributes')) { $Permission = 'Read' }
@@ -146,7 +146,7 @@
                     }
 
                     # If String is present, output.
-                    If ($StringSetting -like "*$String*") { Write-Host $StringSetting }
+                    If ($StringSetting -like "*$String*") { Write-Host "`n$StringSetting" }
                 }
             }
         }
