@@ -7,7 +7,7 @@
     #>
 
     Param(
-        [Parameter(Mandatory = $True)][String[]]$User,
+        [Parameter(Mandatory, ValueFromPipeline)][String[]]$User,
         #MaxLimit is 48000 for newer OSs and 12000 for older
         [ValidateSet(12000, 48000)]$AcceptableSizeLimit = 48000,
         [Switch]$OnDC
@@ -20,7 +20,7 @@
             Param($U, $Attribute = 'distinguishedname')
 
             If (![Bool]$U) { Return }
-  
+
             $Searcher = [ADSISearcher]@{ }
 
             $U = $U.Trim()
@@ -58,14 +58,14 @@
                 $ADSearcher = [DirectoryServices.DirectorySearcher]@{
                     Filter = "distinguishedname=$($distinguishedname)"
                 }
-    
+
                 $RetrievedAllItems = $False
                 $RangeTop = $RangeBottom = 0
                 $AllMembers = @()
             }
             Process {
                 While (!$RetrievedAllItems) {
-                    $RangeTop = $RangeBottom + 1500             
+                    $RangeTop = $RangeBottom + 1500
                     $ADSearcher.PropertiesToLoad.Clear()
                     [Void] $ADSearcher.PropertiesToLoad.Add("memberof;range=$RangeBottom-$RangeTop")
                     $RangeBottom += 1500
@@ -73,7 +73,7 @@
                     Try {
                         $TempInfo = $ADSearcher.FindOne().Properties
                         $AllMembers += $TempInfo.Item($TempInfo.PropertyNames -like 'memberof;range=*')
-                            
+
                         If ($TempInfo.Item($TempInfo.PropertyNames -like 'memberof;range=*').Count -eq 0) { $RetrievedAllItems = $True }
 
                         Remove-Variable -Name TempInfo -ErrorAction SilentlyContinue
@@ -119,7 +119,7 @@
                                     $NestedValues += $NestedValue
                                 }
                             }
-            
+
                             #Restart the Function with new Values
                             If ([Boolean]$NestedValues) {
                                 Get-NestedMembers -Targets $NestedValues -Depth ($Depth + 1)
@@ -141,9 +141,9 @@
             $MemberDN = FindUser -U $U
 
             $Member = ([ADSISearcher]"distinguishedname=$MemberDN").FindOne().Properties
-    
+
             $MembershipDNs = Get-NestedMembers -Targets (Get-AllMembers -distinguishedname $MemberDN) -Depth 0
-    
+
             Foreach ($DN in $MembershipDNs) {
                 $ADObject = ([ADSISearcher]"distinguishedname=$DN").FindOne().Properties
                 $DomainSID = (New-Object System.Security.Principal.SecurityIdentifier($($ADObject.objectsid), 0)).Value
@@ -170,15 +170,15 @@
                 Remove-Variable DomainSid -ErrorAction silentlycontinue
             }
 
-            $GroupSidHistoryCounter = $AllGroupSIDHistories.Count 
-        
-            $TokenSize = 1200 + (40 * 
-                ($SecurityDomainLocalScope + $SecurityUniversalExternalScope + $GroupSidHistoryCounter)) + 
+            $GroupSidHistoryCounter = $AllGroupSIDHistories.Count
+
+            $TokenSize = 1200 + (40 *
+                ($SecurityDomainLocalScope + $SecurityUniversalExternalScope + $GroupSidHistoryCounter)) +
             (8 * ($SecurityGlobalScope + $SecurityUniversalInternalScope))
-    
+
             If ($OnDC.IsPresent) {
-                $DelegatedTokenSize = 2 * (1200 + 
-                    (40 * ($SecurityDomainLocalScope + $SecurityUniversalExternalScope + $GroupSidHistoryCounter)) + 
+                $DelegatedTokenSize = 2 * (1200 +
+                    (40 * ($SecurityDomainLocalScope + $SecurityUniversalExternalScope + $GroupSidHistoryCounter)) +
                     (8 * ($SecurityGlobalScope + $SecurityUniversalInternalScope)))
             }
 
