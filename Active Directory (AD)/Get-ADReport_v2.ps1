@@ -3,9 +3,9 @@
     Created On: 2023-12-13
     Version: 2023.12.13
     Name: Get-ADReports
-    Description: Generates reports about AD.
+    Description: Generates reports about AD
 #>
-Param(
+param(
     $Domains = @(
 
     ),
@@ -32,33 +32,33 @@ Param(
         "
     }
 )
-Begin {
+begin {
     $ScriptStopWatch = [System.Diagnostics.Stopwatch]::StartNew()
 
     #region Functions
 
-    Function Add-ToLog {
-        Param(
+    function Add-ToLog {
+        param(
             [Parameter(ValueFromPipeline)] $Value,
             $Path = $LogPath,
             $PrefixLineBreaks = 0,
             $SuffixLineBreaks = 0
         )
-        If ($PrefixLineBreaks -gt 0) {
+        if ($PrefixLineBreaks -gt 0) {
             $LogPrefix = "`n" * $PrefixLineBreaks
         }
-        If ($SuffixLineBreaks -gt 0) {
+        if ($SuffixLineBreaks -gt 0) {
             $LogSuffix = "`n" * $SuffixLineBreaks
         }
-        If ($ConsoleOutput) {
+        if ($ConsoleOutput) {
             Write-Host "$LogPrefix[$(Get-Date)] $Value$LogSuffix"
         }
-        If ($LogOutput) {
+        if ($LogOutput) {
             "$LogPrefix[$(Get-Date)] $Value$LogSuffix" | Add-Content -Path $Path -Force
         }
     }
 
-    Function Find-ADObject {
+    function Find-ADObject {
         # Add getting all group members member;range=0-1499 attr;range=0-1499
         <#
         .NOTES
@@ -68,7 +68,7 @@ Begin {
     #>
         [alias('Find-ADO', 'FindADO', 'FADO')]
         [cmdLetBinding()]
-        Param(
+        param(
             [Parameter(ParameterSetName = 'ID',
                 Position = 0, Mandatory,
                 ValueFromPipeline, ValueFromPipelineByPropertyName)]
@@ -107,92 +107,92 @@ Begin {
             [Switch]$ExpandMembers,
             [String[]]$ExpandedAttributes = @('distinguishedname', 'samaccountname', 'enabled')
         )
-        Begin {
-            Function FormatInfo {
-                Param($ReturnAttribute, [Parameter(ValueFromPipeline)]$Object)
-                Process {
+        begin {
+            function FormatInfo {
+                param($ReturnAttribute, [Parameter(ValueFromPipeline)]$Object)
+                process {
                     $Result = [System.Collections.Specialized.OrderedDictionary]@{}
 
-                    If ($ReturnAttribute -eq '*') { [String[]]$Attributes = $Object.Properties.Keys }
-                    Else { [String[]]$Attributes = $ReturnAttribute }
+                    if ($ReturnAttribute -eq '*') { [String[]]$Attributes = $Object.Properties.Keys }
+                    else { [String[]]$Attributes = $ReturnAttribute }
 
-                    Foreach ($Attr in ($Attributes.ToLower() | Sort-Object)) {
-                        If ($Attr -eq 'lastlogondate') { $SearchAttr = 'lastlogontimestamp' }
-                        ElseIf ($Attr -eq 'passwordlastset') { $SearchAttr = 'pwdlastset' }
-                        ElseIf ($Attr -eq 'sid') { $SearchAttr = 'objectsid' }
-                        ElseIf ($Attr -eq 'guid') { $SearchAttr = 'objectguid' }
-                        ElseIf ($Attr -eq 'members') { $SearchAttr = 'member' }
-                        ElseIf ('dn', 'domain', 'domainPreFix' -contains $Attr) { $SearchAttr = 'distinguishedname' }
-                        ElseIf ('usercert', 'cert' -contains $Attr) { $SearchAttr = 'usercertificate' }
-                        ElseIf ('uac', 'Enabled', 'LockedOut', 'Disabled', 'passwordneverexpires', 'passwordexpired', 'passwordnotrequired', 'passwordcantchange', 'smartcardrequired' -contains $Attr) {
+                    foreach ($Attr in ($Attributes.ToLower() | Sort-Object)) {
+                        if ($Attr -eq 'lastlogondate') { $SearchAttr = 'lastlogontimestamp' }
+                        elseif ($Attr -eq 'passwordlastset') { $SearchAttr = 'pwdlastset' }
+                        elseif ($Attr -eq 'sid') { $SearchAttr = 'objectsid' }
+                        elseif ($Attr -eq 'guid') { $SearchAttr = 'objectguid' }
+                        elseif ($Attr -eq 'members') { $SearchAttr = 'member' }
+                        elseif ('dn', 'domain', 'domainPreFix' -contains $Attr) { $SearchAttr = 'distinguishedname' }
+                        elseif ('usercert', 'cert' -contains $Attr) { $SearchAttr = 'usercertificate' }
+                        elseif ('uac', 'Enabled', 'LockedOut', 'Disabled', 'passwordneverexpires', 'passwordexpired', 'passwordnotrequired', 'passwordcantchange', 'smartcardrequired' -contains $Attr) {
                             $SearchAttr = 'useraccountcontrol'
                         }
-                        ElseIf ('parentou', 'parent', 'ou' -contains $Attr) { $SearchAttr = 'distinguishedname' }
-                        ElseIf ('sam', 'san' -contains $Attr) { $SearchAttr = 'samaccountname' }
-                        ElseIf ('upn' -contains $Attr) { $SearchAttr = 'userprincipalname' }
-                        Else { $SearchAttr = $Attr }
+                        elseif ('parentou', 'parent', 'ou' -contains $Attr) { $SearchAttr = 'distinguishedname' }
+                        elseif ('sam', 'san' -contains $Attr) { $SearchAttr = 'samaccountname' }
+                        elseif ('upn' -contains $Attr) { $SearchAttr = 'userprincipalname' }
+                        else { $SearchAttr = $Attr }
 
                         $AttrValue = $($Object.Properties.$SearchAttr)
 
-                        If ('lastlogondate', 'lastlogontimestamp', 'lastlogon', 'pwdlastset', 'badpasswordtime', 'passwordlastset' -contains $Attr) {
+                        if ('lastlogondate', 'lastlogontimestamp', 'lastlogon', 'pwdlastset', 'badpasswordtime', 'passwordlastset' -contains $Attr) {
                             $Value = [DateTime]::FromFileTime($Attrvalue)
-                            If ($Value -eq '12/31/1600 5:00:00 PM') { $value = '' }
+                            if ($Value -eq '12/31/1600 5:00:00 PM') { $value = '' }
                             $Result.Add($Attr, $Value)
                         }
-                        ElseIf ('parent', 'parentou', 'ou' -contains $Attr) {
+                        elseif ('parent', 'parentou', 'ou' -contains $Attr) {
                             $Split = $AttrValue -split ',' -like '*=*'
                             $value = $Split[1..($Split.Count)] -join ','
                             $Result.Add($Attr, $Value)
                         }
-                        ElseIf ( $Attr -eq 'domain') {
+                        elseif ( $Attr -eq 'domain') {
                             $Value = $AttrValue -split ',' -like 'DC=*' -replace 'DC=' -join '.'
                             $Result.Add($Attr, $Value)
                         }
-                        ElseIf ( $Attr -eq 'domainPreFix') {
+                        elseif ( $Attr -eq 'domainPreFix') {
                             $Value = ($AttrValue -split ',' -like 'DC=*' -replace 'DC=')[0]
                             $Result.Add('domainPreFix', $Value)
                         }
-                        ElseIf ('objectsid', 'sid' -contains $Attr) {
+                        elseif ('objectsid', 'sid' -contains $Attr) {
                             $value = (New-Object System.Security.Principal.SecurityIdentifier($AttrValue, 0)).Value
                             $Result.Add($Attr, $value)
                         }
-                        ElseIf ('objectguid', 'guid' -contains $Attr) {
+                        elseif ('objectguid', 'guid' -contains $Attr) {
                             $Value = ([System.Guid]$AttrValue).guid
                             $Result.Add($Attr, $Value)
                         }
-                        ElseIf ($Attr -eq 'Enabled') {
+                        elseif ($Attr -eq 'Enabled') {
                             $Value = [convert]::ToString($AttrValue, 2)[-2] -eq '0'
                             $Result.Add($Attr, $Value)
                         }
-                        ElseIf ($Attr -eq 'Disabled') {
+                        elseif ($Attr -eq 'Disabled') {
                             $Value = [convert]::ToString($AttrValue, 2)[-2] -eq '1'
                             $Result.Add($Attr, $Value)
                         }
-                        ElseIf ($Attr -eq 'LockedOut') {
+                        elseif ($Attr -eq 'LockedOut') {
                             $Value = [convert]::ToString($AttrValue, 2)[-5] -eq '0' -and $_.lockouttime -gt 0
                             $Result.Add($Attr, $Value)
                         }
-                        ElseIf ($Attr -eq 'smartcardrequired') {
+                        elseif ($Attr -eq 'smartcardrequired') {
                             $Value = [convert]::ToString($AttrValue, 2)[-19] -eq '1'
                             $Result.Add($Attr, $Value)
                         }
-                        ElseIf ($Attr -eq 'passwordcantchange') {
+                        elseif ($Attr -eq 'passwordcantchange') {
                             $Value = [convert]::ToString($AttrValue, 2)[-6] -eq '1'
                             $Result.Add($Attr, $Value)
                         }
-                        ElseIf ($Attr -eq 'passwordnotrequired') {
+                        elseif ($Attr -eq 'passwordnotrequired') {
                             $Value = [convert]::ToString($AttrValue, 2)[-7] -eq '1'
                             $Result.Add($Attr, $Value)
                         }
-                        ElseIf ($Attr -eq 'passwordexpired') {
+                        elseif ($Attr -eq 'passwordexpired') {
                             $Value = [convert]::ToString($AttrValue, 2)[-17] -eq '1'
                             $Result.Add($Attr, $Value)
                         }
-                        ElseIf ($Attr -eq 'passwordneverexpires') {
+                        elseif ($Attr -eq 'passwordneverexpires') {
                             $Value = [convert]::ToString($AttrValue, 2)[-24] -eq '1'
                             $Result.Add($Attr, $Value)
                         }
-                        ElseIf ('useraccountcontrol', 'uac' -contains $Attr) {
+                        elseif ('useraccountcontrol', 'uac' -contains $Attr) {
                             $Result.Add($Attr, $AttrValue)
                             $Num = "$($AttrValue)"
                             $Power = 26
@@ -220,52 +220,52 @@ Begin {
                                 1  = 'Disabled'
                                 0  = 'Script'
                             }
-                            Do {
+                            do {
                                 $Test = [Math]::Pow(2, $Power)
-                                If (($Num - $Test) -ge 0) {
+                                if (($Num - $Test) -ge 0) {
                                     $Result.Add($PowerHash.$Power, 'True')
                                     $Num = $Num - $Test
                                 }
                                 $Power--
-                            } While ($Power -ge 0)
+                            } while ($Power -ge 0)
 
-                            Foreach ($Item in $PowerHash.Values) {
-                                If (![Bool]$Result.$Item) {
+                            foreach ($Item in $PowerHash.Values) {
+                                if (![Bool]$Result.$Item) {
                                     $Result.Add($Item, 'False')
                                 }
                             }
 
                         }
-                        ElseIf ('usercertificate', 'cert', 'usercert' -contains $Attr) {
+                        elseif ('usercertificate', 'cert', 'usercert' -contains $Attr) {
                             $Result.Add($Attr, $AttrValue)
-                            If ($ReturnAttribute -ne '*') {
-                            ($Cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2).Import($AttrValue)
+                            if ($ReturnAttribute -ne '*') {
+                                ($Cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2).Import($AttrValue)
                                 $Summary = ('DNSNameList', 'Thumbprint', 'SerialNumber', 'Issuer', 'Subject', 'NotAfter', 'NotBefore').ForEach({ "$_ :: $($Cert.$_)" }) -join "`n"
                                 $Result.Add("$Attr translated", $Cert)
                                 $Result.Add("$Attr Summary", $Summary)
                             }
                         }
-                        ElseIf ('member', 'members', 'memberof' -contains $Attr) {
-                            If (([array]$AttrValue).Count -eq 0 -and $Object.Properties.Item($Object.Properties.PropertyNames -like "$SearchAttr;range=*").Count -gt 0) {
+                        elseif ('member', 'members', 'memberof' -contains $Attr) {
+                            if (([array]$AttrValue).Count -eq 0 -and $Object.Properties.Item($Object.Properties.PropertyNames -like "$SearchAttr;range=*").Count -gt 0) {
                                 $Searcher.Filter = "(distinguishedname=$($Object.Properties.distinguishedname))"
                                 $RetrievedAllItems = $False
                                 $RangeTop = $RangeBottom = 0
                                 $AllMembers = @()
-                                While (-not $RetrievedAllItems) {
+                                while (-not $RetrievedAllItems) {
                                     $RangeTop = $RangeBottom + 1500
                                     $Searcher.PropertiesToLoad.Clear()
                                     [Void] $Searcher.PropertiesToLoad.Add("$SearchAttr;range=$RangeBottom-$RangeTop")
                                     $RangeBottom += 1500
 
-                                    Try {
+                                    try {
                                         $TempInfo = $Searcher.FindOne().Properties
                                         $AllMembers += $TempInfo.Item($TempInfo.PropertyNames -like "$SearchAttr;range=*")
 
-                                        If ($TempInfo.Item($TempInfo.PropertyNames -like "$SearchAttr;range=*").Count -eq 0) { $RetrievedAllItems = $True }
+                                        if ($TempInfo.Item($TempInfo.PropertyNames -like "$SearchAttr;range=*").Count -eq 0) { $RetrievedAllItems = $True }
 
                                         Remove-Variable -Name TempInfo -ErrorAction SilentlyContinue -Verbose:$False
                                     }
-                                    Catch { $RetrievedAllItems = $True }
+                                    catch { $RetrievedAllItems = $True }
                                 }
 
                                 $AttrValue = $AllMembers.Clone()
@@ -275,9 +275,9 @@ Begin {
 
                             }
 
-                            If ($ExpandMembers.IsPresent) {
+                            if ($ExpandMembers.IsPresent) {
                                 $ExpandedMembers = @()
-                                Foreach ($SubObject in $AttrValue) {
+                                foreach ($SubObject in $AttrValue) {
                                     $SubObjectDomain = $SubObject -split ',' -like 'DC=*' -replace 'DC=' -join '.'
                                     $ExpandedMembers += Find-ADObject -Identifier $SubObject -SearchByAttribute distinguishedname -ReturnAttribute $ExpandedAttributes -Domain $SubObjectDomain -UserName $UserName -Password $Password -ExpandMembers -Verbose:$False
                                     Remove-Variable SubObjectDomain, SubObject -ErrorAction SilentlyContinue -Verbose:$False
@@ -290,36 +290,36 @@ Begin {
 
                             $Result.Add($Attr, $AttrValue)
                         }
-                        Else {
+                        else {
                             $Result.Add($Attr, $AttrValue)
                         }
                     }
 
                     [string[]]$keys = $Result.keys
                     # Remove values that don
-                    Foreach ($Attr in ($Keys -like '*;range=*')) {
+                    foreach ($Attr in ($Keys -like '*;range=*')) {
                         $Split = $Attr.Split(';')
-                        If (($Result.($Split[0])).Count -gt 0) {
+                        if (($Result.($Split[0])).Count -gt 0) {
                             $Result.Remove($Attr)
                         }
                     }
 
                     # Convert All Values to String
-                    If ($ArrayToString.IsPresent) {
-                        Foreach ($Attr in $Keys) {
+                    if ($ArrayToString.IsPresent) {
+                        foreach ($Attr in $Keys) {
                             $AttrValue = $Result.$Attr
-                            If ($AttrValue.count -gt 1) {
-                                If ($AttrValue -is [byte[]]) {
+                            if ($AttrValue.count -gt 1) {
+                                if ($AttrValue -is [byte[]]) {
                                     $AttrValue = $AttrValue -join ' '
                                 }
-                                Else {
-                                    :Join Foreach ($Delimiter in $ArrayToStringDelimiters) {
-                                        If ("$($AttrValue)" -notlike "*$Delimiter*") {
+                                else {
+                                    :Join foreach ($Delimiter in $ArrayToStringDelimiters) {
+                                        if ("$($AttrValue)" -notlike "*$Delimiter*") {
                                             $AttrValue = $AttrValue -join $Delimiter
-                                            Break Join
+                                            break Join
                                         }
                                     }
-                                    If ($AttrValue -is [array]) {
+                                    if ($AttrValue -is [array]) {
                                         $AttrValue = $AttrValue -join "`n"
                                     }
                                 }
@@ -331,33 +331,33 @@ Begin {
                 }
             }
 
-            If (![Boolean]$Searcher -or $Searcher -isnot [System.DirectoryServices.DirectorySearcher]) {
+            if (![Boolean]$Searcher -or $Searcher -isnot [System.DirectoryServices.DirectorySearcher]) {
                 Write-Verbose -Message 'Creating Searcher' -Verbose:$Verbose
                 $Searcher = New-Object -TypeName System.DirectoryServices.DirectorySearcher
             }
 
-            If ([Boolean]$ResultCount) {
+            if ([Boolean]$ResultCount) {
                 Write-Verbose -Message "Adding Result Limit ($ResultCount) to Searcher" -Verbose:$Verbose
                 $Searcher.SizeLimit = $ResultCount
             }
 
-            If ([Boolean]$PageSize) {
+            if ([Boolean]$PageSize) {
                 Write-Verbose -Message "Adding Page Size ($PageSize) to Searcher" -Verbose:$Verbose
                 $Searcher.PageSize = $PageSize
             }
 
-            If ([Boolean]$SearchRootPath) {
+            if ([Boolean]$SearchRootPath) {
                 $SearchRootPath = $SearchRootPath.TrimStart('/')
-                If ($SearchRootPath -notlike "*$Protocol`://*") {
+                if ($SearchRootPath -notlike "*$Protocol`://*") {
                     $SearchRootPath = "$Protocol`://$SearchRootPath"
                 }
             }
-            ElseIf (![Boolean]$SearchRootPath) {
-                If ([Boolean]$Domain) {
+            elseif (![Boolean]$SearchRootPath) {
+                if ([Boolean]$Domain) {
                     $Split = $Domain.Split(':')
 
                     $GC = $Split[1]
-                    If ('3268', '3269' -contains $GC) {
+                    if ('3268', '3269' -contains $GC) {
                         $Protocol = 'GC'
                     }
 
@@ -365,101 +365,101 @@ Begin {
 
                     $SearchRootPath = "$Protocol`://DC=$($SplitDomain -join ',DC=')"
                 }
-                Else {
+                else {
                     $SearchRootPath = $Searcher.SearchRoot.Path
                 }
             }
 
-            If ([Boolean]$Server) {
+            if ([Boolean]$Server) {
                 $SearchRootPath = $SearchRootPath.Replace('//', "//$Server/")
             }
 
 
-            If ([Boolean]$UserName -and [Boolean]$Password) {
+            if ([Boolean]$UserName -and [Boolean]$Password) {
                 $NewSearchRoot = New-Object -TypeName System.DirectoryServices.DirectoryEntry -ArgumentList $SearchRootPath, $UserName, $Password -ErrorAction Stop
                 $Searcher.SearchRoot = $NewSearchRoot
                 Write-Verbose "SearchRoot: $($Searcher.SearchRoot.Path)" -Verbose:$Verbose
                 Write-Verbose "UserName: $($UserName)" -Verbose:$Verbose
             }
-            Else {
+            else {
                 $Searcher.SearchRoot.Path = $SearchRootPath
                 Write-Verbose "SearchRoot: $($Searcher.SearchRoot.Path)" -Verbose:$Verbose
             }
 
 
             $Searcher.PropertiesToLoad.Clear()
-            If ($ReturnAttribute -ne '*') {
-                Foreach ($Attr in $ReturnAttribute) {
-                    If (!$Searcher.PropertiesToLoad.Contains($Attr)) {
-                        If ($Attr -eq 'lastlogondate') {
+            if ($ReturnAttribute -ne '*') {
+                foreach ($Attr in $ReturnAttribute) {
+                    if (!$Searcher.PropertiesToLoad.Contains($Attr)) {
+                        if ($Attr -eq 'lastlogondate') {
                             [Void] $Searcher.PropertiesToLoad.Add('lastlogontimestamp')
                         }
-                        ElseIf ($Attr -eq 'passwordlastset') {
+                        elseif ($Attr -eq 'passwordlastset') {
                             [Void] $Searcher.PropertiesToLoad.Add('pwdlastset')
                         }
-                        ElseIf ($Attr -eq 'guid') {
+                        elseif ($Attr -eq 'guid') {
                             [Void] $Searcher.PropertiesToLoad.Add('objectguid')
                         }
-                        ElseIf ($Attr -eq 'sid') {
+                        elseif ($Attr -eq 'sid') {
                             [Void] $Searcher.PropertiesToLoad.Add('objectsid')
                         }
-                        ElseIf ('cert', 'usercert', 'certificate', 'certificate' -contains $Attr) {
+                        elseif ('cert', 'usercert', 'certificate', 'certificate' -contains $Attr) {
                             [Void] $Searcher.PropertiesToLoad.Add('usercertificate')
                         }
-                        ElseIf ('san', 'sam' -contains $Attr) {
+                        elseif ('san', 'sam' -contains $Attr) {
                             [Void] $Searcher.PropertiesToLoad.Add('samaccountname')
                         }
-                        ElseIf ($Attr -eq 'upn') {
+                        elseif ($Attr -eq 'upn') {
                             [Void] $Searcher.PropertiesToLoad.Add('userprincipalname')
                         }
-                        ElseIf ($Attr -eq 'members') {
+                        elseif ($Attr -eq 'members') {
                             [Void] $Searcher.PropertiesToLoad.Add('member')
                         }
-                        ElseIf ('uac', 'Enabled', 'LockedOut', 'Disabled', 'passwordneverexpires', 'passwordexpired', 'passwordnotrequired', 'passwordcantchange', 'smartcardrequired' -contains $Attr) {
+                        elseif ('uac', 'Enabled', 'LockedOut', 'Disabled', 'passwordneverexpires', 'passwordexpired', 'passwordnotrequired', 'passwordcantchange', 'smartcardrequired' -contains $Attr) {
                             [Void] $Searcher.PropertiesToLoad.Add('useraccountcontrol')
                         }
-                        Else {
+                        else {
                             [Void] $Searcher.PropertiesToLoad.Add($Attr)
                         }
 
-                        If (!$Searcher.PropertiesToLoad.Contains('distinguishedname')) {
+                        if (!$Searcher.PropertiesToLoad.Contains('distinguishedname')) {
                             [Void] $Searcher.PropertiesToLoad.Add('distinguishedname')
                         }
                     }
                 }
             }
         }
-        Process {
-            If ([Boolean]$LDAPFilter) {
+        process {
+            if ([Boolean]$LDAPFilter) {
                 $Searcher.Filter = $LDAPFilter
             }
-            Else {
-                If ([Boolean]$_) {
+            else {
+                if ([Boolean]$_) {
                     [Array]$Identifier = $_
                 }
 
                 $Filter = @()
-                Foreach ($ID in $Identifier) {
+                foreach ($ID in $Identifier) {
                     $ID = $ID.Trim()
-                    If ([Boolean]$SearchByAttribute) {
+                    if ([Boolean]$SearchByAttribute) {
                         $Filter += "($SearchByAttribute=$ID)"
                     }
-                    ElseIf ($ID -match '([a-zA-Z]{2,}=,?.{1,}){2,}') {
+                    elseif ($ID -match '([a-zA-Z]{2,}=,?.{1,}){2,}') {
                         $Filter += "(distinguishedname=$ID)"
                     }
-                    ElseIf ($ID -like '*@*.*') {
+                    elseif ($ID -like '*@*.*') {
                         $Filter += "(|(mail=$ID)(userprincipalname=$ID))"
                     }
-                    ElseIf ($ID -like '*-*') {
+                    elseif ($ID -like '*-*') {
                         $Filter += "(|(displayname=$ID)(name=$ID)(samaccountname=$ID)(userprincipalname=$ID@*))"
                     }
-                    ElseIf ($ID -like '*,*') {
+                    elseif ($ID -like '*,*') {
                         $Filter += "(|(&(givenname=$($ID.split(',')[0].Trim()))(|(sn=$($ID.split(',')[1].Trim()))(surname=$($ID.split(',')[1].Trim()))))(&(givenname=$($ID.split(',')[1].Trim()))(|(surname=$($ID.split(',')[0].Trim()))(sn=$($ID.split(',')[0].Trim())))))"
                     }
-                    ElseIf ($ID -like '* *') {
+                    elseif ($ID -like '* *') {
                         $Filter += "(|(&(givenname=$($ID.split(' ')[0].Trim()))(|(sn=$(($ID.split(' ')[1..$ID.length] -join ' ').trim()))(surname=$(($ID.split(' ')[1..$ID.length] -join ' ').trim()))))(&(givenname=$($ID.split(' ')[-1].Trim()))(|(surname=$(($ID.Split(' ')[0..($ID.Split(' ').Count-2)] -join ' ').Trim()))(sn=$(($ID.Split(' ')[0..($ID.Split(' ').Count-2)] -join ' ').Trim())))))"
                     }
-                    Else {
+                    else {
                         $Filter += "(|(samaccountname=$ID)(userprincipalname=$ID@*.*))"
                     }
                 }
@@ -470,7 +470,7 @@ Begin {
         }
     }
 
-    Function ForEach-Parallel {
+    function ForEach-Parallel {
         param(
             [Parameter(Mandatory = $True, position = 0)]
             [System.Management.Automation.ScriptBlock] $ScriptBlock,
@@ -481,13 +481,13 @@ Begin {
             [Parameter(Mandatory = $False)]
             $Parameters = @{}
         )
-        Begin {
+        begin {
             $ISS = [System.Management.Automation.RunSpaces.InitialSessionState]::CreateDefault()
             $pool = [RunSpaceFactory]::CreateRunSpacePool(1, $MaxThreads, $ISS, $host)
             $pool.open()
             $threads = @()
         }
-        Process {
+        process {
             $powershell = [powershell]::Create().AddScript($scriptblock).AddParameters($Parameters)
             $powershell.RunSpacePool = $pool
             $threads += @{
@@ -495,7 +495,7 @@ Begin {
                 handle   = $powershell.BeginInvoke()
             }
         }
-        End {
+        end {
             $Done = $False
             while (!$Done) {
                 $Done = $True
@@ -522,33 +522,34 @@ Begin {
     #region Prep
 
     New-Item -ItemType Directory -Path $ExportFolder -Force -ErrorAction Stop | Out-Null
-    If ($LogOutput) {
+    if ($LogOutput) {
         New-Item -ItemType Directory -Path (Split-Path -Parent $LogPath) -Force -ErrorAction Stop | Out-Null
     }
 
     Import-Module ActiveDirectory -ErrorAction Stop
 
     "INFO: Finished WIth Prep: $($ScriptStopWatch.Elapsed.TotalSeconds) Seconds" | Add-ToLog
+
     #endregion Prep
 
 }
-Process {
+process {
     'START: SCRIPT' | Add-ToLog
 
     $DomainStopWatch = [System.Diagnostics.Stopwatch]::StartNew()
-    :Domains Foreach ($Domain in $Domains) {
+    :Domains foreach ($Domain in $Domains) {
         $DomainStopWatch.Restart()
         Remove-Variable '' -ErrorAction SilentlyContinue -Force -Verbose:$False
 
         "START: Domain: $Domain" | Add-ToLog -PrefixLineBreaks 1
 
-        Try {
+        try {
             New-Item -ItemType Directory -Path $ExportFolder -Name $Domain -Force -ErrorAction Stop | Out-Null
             $DomainExportFolder = "$ExportFolder\$Domain"
         }
-        Catch {
+        catch {
             "ERROR: Failed to Create Domain Export Folder. ERROR: $_" | Add-ToLog
-            Continue Domains
+            continue Domains
         }
 
         $DCs = Get-ADDomainController -Filter * -Server $Domain
@@ -619,16 +620,16 @@ Process {
         "END: Domain: $Domain. Duration: $($DomainStopWatch.Elapsed.TotalSeconds) Seconds"
     }
 }
-End {
+end {
     'END: SCRIPT' | Add-ToLog
     $ScriptStopWatch.Stop()
     Replace('[END]', (Get-Date))
     $EmailSplat.Replace('[DURATION]', "$($ScriptStopWatch.Elapsed.TotalMinutes) Minutes")
 
-    Try {
+    try {
         Send-MailMessage @EmailSplat
     }
-    Catch {
+    catch {
         Send-MailMessage -To $EmailSplat.To -Subject 'AD Report Failure: Send Report' -BodyAsHtml -Body (
             '<b>OCCURRENCE:</b> Failed to Send Report. <br>' +
             '<b>ACTION:</b> Check Error and Fix Code.<br>' +
