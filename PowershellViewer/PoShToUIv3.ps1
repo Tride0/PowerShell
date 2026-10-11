@@ -1,9 +1,7 @@
 <# PoshToUI
     To Do:
         Array Actions
-            1 Lock / Unlock
-                2 Goes into Quick bar when Locked, goes back into ButtonMenu when Unlocked
-            2 Random Values - Fills array with random values
+            1 Random Values 
                 9. FUTURE FEATURE: Customize how they generate.
             Search - Highlights matches
             Filter - Removes non-matching items
@@ -66,7 +64,6 @@ $ColorSequence = @(
     '#C1B8D1'
     '#EDEAFA'
 )
-$CheckBoxDisabledColor = '#ff8181'
 
 # UI Element Names
 $WindowName = 'Window'
@@ -93,20 +90,15 @@ $ConstructName = 'Construct'
 $MenuName = 'Menu'
 $ButtonMenuName = 'ButtonMenu'
 
-$EnableCheckBoxName = 'EnableCheckBox'
-
 $MinMaxButtonName = 'MinMaxButton'
 $AddArrayItemButtonName = 'AddArrayItemButton'
 
-$ClearButtonNameSuffix = 'ClearButton'
+$RandomValuesButtonNameSuffix = 'RandomValuesButton'
 $DragHandleNameSuffix = 'DragHandle'
 $LockUnlockButtonName = 'LockUnlockButton'
-
-$DeleteButtonNameSuffix = 'DeleteButton'
-$DeleteAllArrayItemsButtonNameSuffix = 'DeleteAllArrayItemsButton'
-
+$ClearButtonNameSuffix = 'ClearButton'
 $DisableEnableButtonNameSuffix = 'DisableEnableButton'
-$DisableEnableAllArrayItemsButtonNameSuffix = 'DisableEnableAllArrayItemsButton'
+$DeleteButtonNameSuffix = 'DeleteButton'
 
 $ConstructButtonNameSuffix = 'ConstructButton'
 $IndexBoxNameSuffix = 'IndexBox'
@@ -121,16 +113,18 @@ $MinMaxButtonMinedIcon = '🔼'
 $MinMaxButtonMinedToolTip = "Maximize`nSHIFT: Alternate Behavior"
 
 $AddArrayItemButtonIcon = '➕'
-$ClearButtonHeader = 'Clear'
+$ClearButtonHeader = 'Clear Value'
 $ClearButtonIcon = '🧹'
-$DisableEnableButtonDisabledHeader = 'Disable'
-$DisableEnableButtonDisabledIcon = '❌'
-$DisableEnableButtonEnabledHeader = 'Enable'
-$DisableEnableButtonEnabledIcon = '✔'
+$RandomValuesButtonHeader = 'Random Value'
+$RandomValuesButtonIcon = '🎲'
+$DisableEnableButtonHeaderDisabled = '❌'
+$DisableEnableButtonIconDisabled = $null
+$DisableEnableButtonHeaderEnabled = 'Disable'
+$DisableEnableButtonIconEnabled = '❌'
 $DeleteButtonHeader = 'Delete'
 $DeleteButtonIcon = '🗑'
-$LockUnlockButtonHeaderLocked = $null
-$LockUnlockButtonIconLocked = '🔒'
+$LockUnlockButtonHeaderLocked = '🔒'
+$LockUnlockButtonIconLocked = $null
 $LockUnlockButtonHeaderUnlocked = 'Lock'
 $LockUnlockButtonIconUnlocked = '🔓'
 # $SettingsIcon = '⚙' #3 Not used yet
@@ -157,16 +151,29 @@ Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop
 #region #0 PowerShell Helper Functions
 
 function ViewUI {
-    param([Parameter(ValueFromPipeline = $true)]$UIElement)
+    param(
+        [Parameter(ValueFromPipeline = $true)][array]$UIElement,
+        [string[]]$PropertiesToLookAt = @('Name', 'DataContext', 'Header', 'Child', 'Content', 'Children', 'Items', 'ToolBars', 'Text', 'SelectedItem', 'Password')
+    )
     begin {
         $r = @()
     }
     process {
-        $r += $UIElement | Select-Object @{n = 'Parent'; e = { $_.Parent.GetType().Name } }, Name, @{n = 'Type'; e = { $_.GetType().Name } },
-        Child, Content, Children, Items, ToolBars, Text, SelectedItem, Password, DataContext, Header
+        Foreach ($Element in $UIElement) {
+            $Hash = [Ordered]@{}
+            $Hash.Parent = $Element.Parent.GetType().Name
+            $Hash.Type = $Element.GetType().Name
+            Foreach ($Property in $PropertiesToLookAt) {
+                if ($null -ne $Element.$Property) {
+                    $Hash.$Property = $Element.$Property
+                }
+            }
+            $r += [PSCustomObject]$Hash
+            Remove-Variable Hash -ErrorAction SilentlyContinue
+        }
     }
     end {
-        if ($r.count -gt 1) { $r | Format-Table }
+        if ($r.count -gt 1) { $r | Format-Table -AutoSize }
         else { $r }
     }
 } # function ViewUI
@@ -406,10 +413,7 @@ function New-BaseSeparator {
     [System.Windows.Controls.Separator]$Parameters
 } # function New-BaseSeparator
 
-function New-BaseCheckBox {
-    param( [hashtable]$Parameters = @{} )
-    [System.Windows.Controls.CheckBox]$Parameters
-} # function New-BaseCheckBox
+
 
 function New-BaseComboBox {
     param( [hashtable]$Parameters = @{} )
@@ -623,7 +627,7 @@ function Clear-WrapperContent {
     )
     $Contents = Find-ObjectWhere -Object $Wrapper -FindWhere { $_.Name -eq $ContentElementName }
     :Contents foreach ($Content in $Contents) {
-        if ((Get-IsLocked ([ref]$Content))) { continue Contents } # TODO: Flash red
+        if ((Get-IsLocked ([ref]$Content))) { continue Contents } # TODO: Flash lock
 
         switch ($Content.GetType().Name) {
             'TextBox' { $Content.Text = $null }
@@ -642,36 +646,131 @@ function Clear-WrapperContent {
     } # Contents
 } # function Clear-WrapperContent
 
+function Set-WrapperRandomContent {
+    param(
+        [ref]$Wrapper
+    )
+    $Contents = @()
+    if ($Wrapper.Value.Name -eq $ContentElementName) {
+        $Contents += $Wrapper.Value
+    }
+    $ChildContents = Find-ObjectWhere -Object $Wrapper -FindWhere { $_.Name -eq $ContentElementName }
+    if ($ChildContents) {
+        $Contents += $ChildContents
+    }
+
+    :Contents foreach ($Content in $Contents) {
+        if ((Get-IsLocked ([ref]$Content))) { continue Contents }
+
+        switch ($Content.GetType().Name) {
+            'TextBox' {
+                if ($Content.MaxLength -eq 1) {
+                    $Content.Text = [string]([char](Get-Random -Minimum 65 -Maximum 90))
+                }
+                else {
+                    $Content.Text = (Get-Random -Minimum 0 -Maximum 100).ToString()
+                }
+            }
+            'ComboBox' {
+                if ($Content.ItemsSource -and @($Content.ItemsSource).Count -gt 0) {
+                    $Content.SelectedItem = Get-Random -InputObject @($Content.ItemsSource)
+                }
+            }
+            'PasswordBox' {
+                $Content.Password = (([char[]](0..200) | Get-Random -Count 10) -join '')
+            }
+            'RichTextBox' {
+                $Content.Document.Blocks.Clear()
+                $Paragraph = New-Object System.Windows.Documents.Paragraph
+                $Paragraph.Margin = '0'
+                $Paragraph.InLines.Add((([char[]](0..200) | Get-Random -Count 10) -join ''))
+                $Content.Document.Blocks.Add($Paragraph)
+            }
+            default {
+                Write-Host "What is this? ($($Content.GetType().Name))" -ForegroundColor Red -BackgroundColor Yellow
+            }
+        }
+    } # Contents
+
+    $DateTimePickers = @()
+    if ($Wrapper.Value.Name -eq $CustomDateTimePickerName) {
+        $DateTimePickers += $Wrapper.Value
+    }
+    $ChildDateTimePickers = Find-ObjectWhere -Object $Wrapper -FindWhere { $_.Name -eq $CustomDateTimePickerName }
+    if ($ChildDateTimePickers) {
+        $DateTimePickers += $ChildDateTimePickers
+    }
+
+    :DateTimePickers foreach ($DTP in $DateTimePickers) {
+        if ((Get-IsLocked ([ref]$DTP))) { continue DateTimePickers }
+        $DateBox = Find-ObjectWhere -Object ([ref]$DTP) -FindWhere { $_.Name -eq $ContentDateTimeDisplayTextBoxName } -FindMax 1
+        if ($DateBox) {
+            $DateBox.Text = (Get-Date).AddDays((Get-Random -Minimum -30 -Maximum 30)).ToString('yyyy-MM-dd HH:mm:ss')
+        }
+    }
+} # function Set-WrapperRandomContent
+
 function Confirm-ArrayEnableButton {
-    param( [ref]$CheckBox )
-    $ContentHeaderBorder = Find-ObjectWhere -Object $CheckBox -FindWhere { $_.Name -eq $ContentHeaderBorderName } -DigProperties 'Parent' -FindMax 1
+    param( [ref]$Item )
+    $Target = if ($Item -is [System.Management.Automation.PSReference]) { $Item.Value } else { $Item }
+    if ($Target.Name -eq $ContentHeaderBorderName) {
+        $ContentHeaderBorder = $Target
+    }
+    else {
+        $ContentHeaderBorder = Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $_.Name -eq $ContentHeaderBorderName } -DigProperties 'Parent' -FindMax 1
+    }
+    
+    if (-not $ContentHeaderBorder) { return }
+
     $ContentHeaderBorderTitle = Find-Title $ContentHeaderBorder
 
     # If Wrapper is not an Array, Get GrandWrapper
     if ($ContentHeaderBorderTitle -notlike '*`[]') {
-        $ContentHeaderBorder = Find-ObjectWhere -Object ([ref]$ContentHeaderBorder) -FindWhere { $_.Name -eq $ContentHeaderBorderName } -DigProperties 'Parent' -FindMax 1
+        $GrandWrapper = Find-ObjectWhere -Object ([ref]$ContentHeaderBorder) -FindWhere { $_.Name -eq $ContentHeaderBorderName } -DigProperties 'Parent' -FindMax 1
+        if ($GrandWrapper) { $ContentHeaderBorder = $GrandWrapper }
     }
 
-    $EnableCheckBoxes = Find-ObjectWhere -Object ([ref]$ContentHeaderBorder) -FindWhere { $_.Name -eq $EnableCheckBoxName } -DepthMax 3 -DepthWhere { $_.Name -eq $ContentSlotElementName }
+    $ArrayButton = Find-ObjectWhere -Object ([ref]$ContentHeaderBorder) -FindWhere { $_.Name -like "*$DisableEnableButtonNameSuffix" } -DepthMax 1 -DepthWhere { $_.Name -eq $ContentSlotElementName }
+    if (-not $ArrayButton) { return }
 
-    [array]$IsCheckedGroupings = $EnableCheckBoxes.IsChecked | Group-Object
+    $ItemButtons = Find-ObjectWhere -Object ([ref]$ContentHeaderBorder) -FindWhere { $_.Name -like "*$DisableEnableButtonNameSuffix" -and $_ -ne $ArrayButton }
+    $ItemCount = if ($ItemButtons) { @($ItemButtons).Count } else { 0 }
 
-    if ($IsCheckedGroupings.Count -eq 1) {
-        if ($IsCheckedGroupings.Name -eq 'false') {
-            $NewHeader = $DisableEnableButtonEnabledHeader + ' All'
-            $NewIcon = $DisableEnableButtonEnabledIcon
+    if ($ItemCount -eq 0) {
+        if ($ArrayButton.Icon -eq $DisableEnableButtonIconDisabled) {
+            $ArrayParent = $ArrayButton.Parent
+            $ArrayButton.Header = $DisableEnableButtonHeaderEnabled + ' All'
+            $ArrayButton.Icon = $DisableEnableButtonIconEnabled
+            $TargetIndex = if ($ArrayButton.Tag -is [hashtable]) { $ArrayButton.Tag.Index } else { $ArrayButton.Tag }
+            Remove-CustomMenuChild ([ref]$ArrayParent) ([ref]$ArrayButton)
+            Add-ChildToItemsButtonMenu ([ref]$ArrayParent) ([ref]$ArrayButton) $TargetIndex
+            $ArrayButton.Tag = $null
         }
-        else {
-            $NewHeader = $DisableEnableButtonDisabledHeader + ' All'
-            $NewIcon = $DisableEnableButtonDisabledIcon
+        return
+    }
+
+    $DisabledButtons = $ItemButtons | Where-Object { $null -eq $_.Icon }
+    $DisabledCount = if ($DisabledButtons) { @($DisabledButtons).Count } else { 0 }
+
+    if ($DisabledCount -eq $ItemCount) {
+        if ($ArrayButton.Icon -eq $DisableEnableButtonIconEnabled) {
+            $ArrayParent = $ArrayButton.Parent
+            $ArrayButton.Tag = @{ Index = $ArrayParent.Items.IndexOf($ArrayButton); IsAll = $true }
+            $ArrayButton.Header = $DisableEnableButtonHeaderDisabled + ' All'
+            $ArrayButton.Icon = $DisableEnableButtonIconDisabled
+            Remove-ChildToItemsButtonMenu ([ref]$ArrayParent) ([ref]$ArrayButton)
+            Add-CustomMenuChild ([ref]$ArrayParent) ([ref]$ArrayButton)
         }
-        $DisableEnableButton = Find-ObjectWhere -Object ([ref]$ContentHeaderBorder) -FindWhere { $_.Name -like "*$DisableEnableAllArrayItemsButtonNameSuffix" } -DepthMax 1 -DepthWhere { $_.Name -eq $ContentSlotElementName }
-        try {
-            $DisableEnableButton.Header = $NewHeader
-            $DisableEnableButton.Icon = $NewIcon
-        }
-        catch {
-            Write-Host "{Confirm-ArrayEnableButton} $_" -ForegroundColor Red
+    }
+    elseif ($DisabledCount -eq 0) {
+        if ($ArrayButton.Icon -eq $DisableEnableButtonIconDisabled) {
+            $ArrayParent = $ArrayButton.Parent
+            $ArrayButton.Header = $DisableEnableButtonHeaderEnabled + ' All'
+            $ArrayButton.Icon = $DisableEnableButtonIconEnabled
+            $TargetIndex = if ($ArrayButton.Tag -is [hashtable]) { $ArrayButton.Tag.Index } else { $ArrayButton.Tag }
+            Remove-CustomMenuChild ([ref]$ArrayParent) ([ref]$ArrayButton)
+            Add-ChildToItemsButtonMenu ([ref]$ArrayParent) ([ref]$ArrayButton) $TargetIndex
+            $ArrayButton.Tag = $null
         }
     }
 } # function Confirm-ArrayEnableButton
@@ -817,7 +916,9 @@ function New-ContentHeader {
     # Array Setting Differences
     if ($IsArray) {
         $ClearButton = Find-ObjectWhere -Object ([ref]$ContentHeaderButtonMenu) -FindWhere { $_.Name -like "*$ClearButtonNameSuffix" }
-        $ClearButton.Header = $ClearButtonHeader + ' All'
+        if ($ClearButton) { $ClearButton.Header = $ClearButtonHeader + 's' }
+        $RandomValuesButton = Find-ObjectWhere -Object ([ref]$ContentHeaderButtonMenu) -FindWhere { $_.Name -like "*$RandomValuesButtonNameSuffix" }
+        if ($RandomValuesButton) { $RandomValuesButton.Header = $RandomValuesButtonHeader + 's' }
     }
 
     return $ContentHeaderBorder
@@ -914,6 +1015,18 @@ function New-TypeContent {
     }
 
     $Menu = Find-ObjectWhere -Object ([ref]$Top) -FindWhere { $_.Name -eq $MenuName } -FindMax 1
+    $LockButton = Find-ObjectWhere -Object ([ref]$Menu) -FindWhere { $_.Name -eq $LockUnlockButtonName }
+    if ($null -eq $LockButton) {
+        $LockButton = New-LockButton -ActionFrom $Top.Name
+        Add-ChildToItemsButtonMenu ([ref]$Top) ([ref]$LockButton)
+    }
+
+    $RandomValuesButton = Find-ObjectWhere -Object ([ref]$Menu) -FindWhere { $_.Name -like "*$RandomValuesButtonNameSuffix" }
+    if ($null -eq $RandomValuesButton) {
+        $RandomValuesButton = New-RandomValuesButton -ActionFrom $Top.Name
+        Add-ChildToItemsButtonMenu ([ref]$Top) ([ref]$RandomValuesButton)
+    }
+
     $ClearButton = Find-ObjectWhere -Object ([ref]$Menu) -FindWhere { $_.Name -like "*$ClearButtonNameSuffix" }
     if ($null -eq $ClearButton) {
         $ClearButton = New-ClearButton -ActionFrom $Top.Name
@@ -1015,16 +1128,20 @@ function Add-ArrayFunctionality {
         $LockUnlockButton = New-LockButton -ActionFrom $Wrapper.Value.Name
         Add-ChildToItemsButtonMenu $Wrapper ([ref]$LockUnlockButton)
 
+        # Button: Random Values All
+        $RandomValuesButton = New-RandomValuesButton -Header "$($RandomValuesButtonHeader + 's')" -ActionFrom $Wrapper.Value.Name
+        Add-ChildToItemsButtonMenu $Wrapper ([ref]$RandomValuesButton)
+
         # Button: Clear All
-        $ClearButton = New-ClearButton -Header "$($ClearButtonHeader + ' All')" -ActionFrom $Wrapper.Value.Name
+        $ClearButton = New-ClearButton -Header "$($ClearButtonHeader + 's')" -ActionFrom $Wrapper.Value.Name
         Add-ChildToItemsButtonMenu $Wrapper ([ref]$ClearButton)
 
         # Button: Enable/Disable All
-        $DisableEnableButton = New-DisableEnableAllArrayItemsButton -ActionFrom $Wrapper.Value.Name
+        $DisableEnableButton = New-DisableEnableButton -Header ($DisableEnableButtonHeaderEnabled + ' All') -ActionFrom $Wrapper.Value.Name
         Add-ChildToItemsButtonMenu $Wrapper ([ref]$DisableEnableButton)
 
         # Button: Delete All
-        $DeleteButton = New-DeleteAllArrayItemsButton -ActionFrom $Wrapper.Value.Name
+        $DeleteButton = New-DeleteButton -Header ($DeleteButtonHeader + ' All') -ActionFrom $Wrapper.Value.Name
         Add-ChildToItemsButtonMenu $Wrapper ([ref]$DeleteButton)
     }
     elseif ($ArrayItemType -eq 'ArrayItem') {
@@ -1045,37 +1162,6 @@ function Add-ArrayFunctionality {
 
         $DragHandle = New-DragHandle -WrapperName $Wrapper.Value.Name
         $IndexBlock = New-IndexBox -WrapperName $Wrapper.Value.Name -Index ($Index + 1)
-        $EnableCheckBox = New-BaseCheckBox @{
-            VerticalAlignment = 'Center'
-            IsChecked         = $true
-            Name              = $EnableCheckBoxName
-            Background        = 'Transparent'
-            BorderBrush       = 'Transparent'
-        }
-        $EnableCheckBox.Add_Checked({
-                $this.Background = 'Transparent'
-
-                Confirm-ArrayEnableButton -CheckBox ([ref]$this)
-
-                $ContentHeaderBorder = Find-ObjectWhere -Object ([ref]$this) -FindWhere { $_.Name -eq $ContentHeaderBorderName } -DigProperties 'Parent' -FindMax 1
-                $DisableEnableButton = Find-ObjectWhere -Object ([ref]$ContentHeaderBorder) -FindWhere { $_.Name -like "*$DisableEnableButtonNameSuffix" } -FindMax 1 -DepthMax 2 -DepthWhere { $_.Name -eq $ContentSlotElementName }
-                if ($DisableEnableButton) {
-                    $DisableEnableButton.Header = $DisableEnableButtonDisabledHeader
-                    $DisableEnableButton.Icon = $DisableEnableButtonEnabledIcon
-                }
-            })
-        $EnableCheckBox.Add_UnChecked({
-                $this.Background = $CheckBoxDisabledColor
-
-                Confirm-ArrayEnableButton -CheckBox ([ref]$this)
-
-                $ContentHeaderBorder = Find-ObjectWhere -Object ([ref]$this) -FindWhere { $_.Name -eq $ContentHeaderBorderName } -DigProperties 'Parent' -FindMax 1
-                $DisableEnableButton = Find-ObjectWhere -Object ([ref]$ContentHeaderBorder) -FindWhere { $_.Name -like "*$DisableEnableButtonNameSuffix" } -FindMax 1 -DepthMax 2 -DepthWhere { $_.Name -eq $ContentSlotElementName }
-                if ($DisableEnableButton) {
-                    $DisableEnableButton.Header = $DisableEnableButtonEnabledHeader
-                    $DisableEnableButton.Icon = $DisableEnableButtonEnabledIcon
-                }
-            })
         $ArrayItemStack = New-BaseStackPanel @{
             Name                = $ArrayItemStackName
             Orientation         = 'Horizontal'
@@ -1083,7 +1169,6 @@ function Add-ArrayFunctionality {
         }
         $ArrayItemStack.AddChild($DragHandle) | Out-Null
         $ArrayItemStack.AddChild($IndexBlock) | Out-Null
-        $ArrayItemStack.AddChild($EnableCheckBox) | Out-Null
 
         $ContentBorderDock.Children.Insert(0, $ArrayItemStack)
 
@@ -1095,48 +1180,20 @@ function Add-ArrayFunctionality {
         $LockUnlockButton = New-LockButton -ActionFrom $Wrapper.Value.Name
         Add-ChildToItemsButtonMenu $Wrapper ([ref]$LockUnlockButton)
 
+        # Button: Random Values
+        $RandomValuesButton = New-RandomValuesButton -ActionFrom $Wrapper.Value.Name
+        Add-ChildToItemsButtonMenu $Wrapper ([ref]$RandomValuesButton)
+
         # Button: Clear
         $ClearButton = New-ClearButton -ActionFrom $Wrapper.Value.Name
         Add-ChildToItemsButtonMenu $Wrapper ([ref]$ClearButton)
 
         # Button: Enable/Disable
-        $DisableEnableButton = New-BaseMenuItem @{
-            Name   = $Wrapper.Value.Name + '_' + $DisableEnableButtonNameSuffix
-            Header = $DisableEnableButtonDisabledHeader
-            Icon   = $DisableEnableButtonDisabledIcon
-        }
-        $DisableEnableButton.Add_Click({
-                param($sender, $e)
-                $ArrayItem = Find-ObjectWhere -Object ([ref]$sender) -FindWhere { $_.Name -eq "$($sender.Name.Replace("_$DisableEnableButtonNameSuffix", ''))" } -DigProperties 'Parent' -FindMax 1
-                $EnableCheckBox = Find-ObjectWhere -Object ([ref]$ArrayItem) -FindWhere { $_.Name -eq $EnableCheckBoxName } -DepthMax 2 -DepthWhere { $_.Name -eq $ContentSlotElementName }
-
-                $NewIcon = if ($EnableCheckBox.IsChecked) { $DisableEnableButtonDisabledIcon } else { $DisableEnableButtonEnabledIcon }
-                $NewHeader = if ($EnableCheckBox.IsChecked) { $DisableEnableButtonDisabledHeader } else { $DisableEnableButtonEnabledHeader }
-
-                if ($EnableCheckBox) {
-                    $EnableCheckBox.IsChecked = -not $EnableCheckBox.IsChecked
-                    $sender.Header = $NewHeader
-                    $sender.Icon = $NewIcon
-                }
-            })
+        $DisableEnableButton = New-DisableEnableButton -ActionFrom $Wrapper.Value.Name
         Add-ChildToItemsButtonMenu $Wrapper ([ref]$DisableEnableButton)
 
         # Button: Delete
-        $DeleteButton = New-BaseMenuItem @{
-            Header = $DeleteButtonHeader
-            Name   = $Wrapper.Value.Name + '_' + $DeleteButtonNameSuffix
-            Icon   = $DeleteButtonIcon
-        }
-        $DeleteButton.Add_Click({
-                param($sender, $e)
-                $ArrayItem = Find-ObjectWhere -Object ([ref]$sender) -FindWhere { $_.Name -eq "$($sender.Name.Replace("_$DeleteButtonNameSuffix", ''))" } -DigProperties 'Parent' -FindMax 1
-                if ($ArrayItem) {
-                    $Array = $ArrayItem.Parent
-                    $Array.Children.Remove($ArrayItem)
-                    Reset-ArrayIndexes ([ref]$Array)
-                }
-            }
-        )
+        $DeleteButton = New-DeleteButton -ActionFrom $Wrapper.Value.Name
         Add-ChildToItemsButtonMenu $Wrapper ([ref]$DeleteButton)
 
         #endregion Array Item Buttons
@@ -1153,6 +1210,13 @@ function Add-ArrayFunctionality {
 
 function Get-ContentValue {
     param($Object)
+
+    Try {
+        $ObjectName = $Object.GetType().Name
+    }
+    Catch {
+        Write-Host "{Get-ContentValue} $_" -ForegroundColor Red
+    }
 
     $Value = switch ($Object.GetType().Name) {
         'PasswordBox' { $Object.Password }
@@ -1250,11 +1314,12 @@ function New-ContentNumber {
 
 function New-ContentBoolean {
     New-BaseComboBox @{
-        Name        = $ContentElementName
-        ItemsSource = @(
+        Name         = $ContentElementName
+        ItemsSource  = @(
             $true,
             $false
         )
+        SelectedItem = if ($RandomValues) { Get-Random -InputObject @($true, $false) } else { $null }
     }
 } # function New-ContentBoolean
 
@@ -1718,63 +1783,150 @@ function New-ClearButton {
     return $ClearButton
 } # function New-ClearButton
 
-function New-DisableEnableAllArrayItemsButton {
+function New-RandomValuesButton {
     param(
-        $ActionFrom
+        [string]$Header = $RandomValuesButtonHeader,
+        [string]$ActionFrom = $ContentHeaderBorderName
     )
-    # Button: Disable/Enable All
-    $DisableEnableAllArrayItemsButton = New-BaseMenuItem @{
-        Name   = "$ActionFrom`_$DisableEnableAllArrayItemsButtonNameSuffix"
-        Header = $DisableEnableButtonDisabledHeader + ' All'
-        Icon   = $DisableEnableButtonDisabledIcon
-    }
-    $DisableEnableAllArrayItemsButton.Add_Click({
-            param($sender, $e)
-            $ContentWrapper = Find-ObjectWhere -Object ([ref]$sender) -FindWhere { $_.Name -eq "$($sender.Name.Replace("_$DisableEnableAllArrayItemsButtonNameSuffix", ''))" } -DigProperties 'Parent' -FindMax 1
-            $ContentSlotElement = Find-ObjectWhere -Object ([ref]$ContentWrapper) -FindWhere { $_.Name -eq $ContentSlotElementName } -DepthMax 1 -DepthWhere { $_.Name -eq $ContentSlotElementName }
-            $EnableCheckBoxes = Find-ObjectWhere -Object ([ref]$ContentSlotElement) -FindWhere { $_.Name -eq $EnableCheckBoxName } -DepthMax 1 -DepthWhere { $_.Name -eq $ConstructName }
 
-            $isCheckedValue = $sender.Header -eq ($DisableEnableButtonEnabledHeader + ' All')
-            :EnableCheckBoxes foreach ($CheckBox in $EnableCheckBoxes) {
-                if ((Get-IsLocked $CheckBox)) { continue EnableCheckBoxes } # TODO: Flash Lock
-                if ($CheckBox.IsChecked -ne $isCheckedValue) {
-                    $CheckBox.IsChecked = $isCheckedValue
+    $RandomValuesButton = New-BaseMenuItem @{
+        Name   = "$ActionFrom`_$RandomValuesButtonNameSuffix"
+        Header = $Header
+        Icon   = $RandomValuesButtonIcon
+    }
+    $RandomValuesButton.Add_Click({
+            param($sender, $e)
+            $ContentWrapper = Find-ObjectWhere -Object ([ref]$sender) -FindWhere { $_.Name -eq "$($sender.Name.Replace("_$RandomValuesButtonNameSuffix", ''))" } -DigProperties 'Parent' -FindMax 1
+            if ($ContentWrapper) { Set-WrapperRandomContent ([ref]$ContentWrapper) }
+        }
+    )
+    return $RandomValuesButton
+} # function New-RandomValuesButton
+
+function New-DisableEnableButton {
+    param(
+        [string]$Header = $DisableEnableButtonHeaderEnabled,
+        [string]$ActionFrom = $ContentHeaderBorderName
+    )
+
+    $DisableEnableButton = New-BaseMenuItem @{
+        Name   = "$ActionFrom`_$DisableEnableButtonNameSuffix"
+        Header = $Header
+        Icon   = $DisableEnableButtonIconEnabled
+    }
+
+    $DisableEnableButton.Add_Click({
+            param($sender, $e)
+            if ((Get-IsLocked $sender)) { return }
+            $Parent = $Sender.Parent
+            $IsAll = $sender.Header -like '* All' -or ($sender.Tag -is [hashtable] -and $sender.Tag.IsAll)
+
+            switch ($sender.Icon) {
+                $DisableEnableButtonIconDisabled {
+                    $sender.Header = if ($IsAll) { $DisableEnableButtonHeaderEnabled + ' All' } else { $DisableEnableButtonHeaderEnabled }
+                    $sender.Icon = $DisableEnableButtonIconEnabled
+                    $TargetIndex = if ($sender.Tag -is [hashtable]) { $sender.Tag.Index } else { $sender.Tag }
+                    Remove-CustomMenuChild ([ref]$Parent) ([ref]$sender)
+                    Add-ChildToItemsButtonMenu ([ref]$Parent) ([ref]$sender) $TargetIndex
+                    $sender.Tag = $null
+
+                    if ($IsAll) {
+                        $ContentWrapper = Find-ObjectWhere -Object ([ref]$sender) -FindWhere { $_.Name -eq "$($sender.Name.Replace("_$DisableEnableButtonNameSuffix", ''))" } -DigProperties 'Parent' -FindMax 1
+                        $ChildButtons = Find-ObjectWhere -Object ([ref]$ContentWrapper) -FindWhere { $_.Name -like "*$DisableEnableButtonNameSuffix" -and $_ -ne $sender }
+                        :ChildButtons foreach ($ChildButton in $ChildButtons) {
+                            if ((Get-IsLocked $ChildButton)) { continue ChildButtons }
+                            if ($ChildButton.Icon -eq $DisableEnableButtonIconDisabled) {
+                                $ChildParent = $ChildButton.Parent
+                                $ChildButton.Header = $DisableEnableButtonHeaderEnabled
+                                $ChildButton.Icon = $DisableEnableButtonIconEnabled
+                                $ChildIndex = if ($ChildButton.Tag -is [hashtable]) { $ChildButton.Tag.Index } else { $ChildButton.Tag }
+                                Remove-CustomMenuChild ([ref]$ChildParent) ([ref]$ChildButton)
+                                Add-ChildToItemsButtonMenu ([ref]$ChildParent) ([ref]$ChildButton) $ChildIndex
+                                $ChildButton.Tag = $null
+                            }
+                        }
+                    }
+                    else {
+                        Confirm-ArrayEnableButton -Item ([ref]$sender)
+                    }
                 }
-            } # EnableCheckBoxes
+                $DisableEnableButtonIconEnabled {
+                    $TagInfo = if ($IsAll) { @{ Index = $Parent.Items.IndexOf($sender); IsAll = $true } } else { $Parent.Items.IndexOf($sender) }
+                    $sender.Tag = $TagInfo
+                    $sender.Header = if ($IsAll) { $DisableEnableButtonHeaderDisabled + ' All' } else { $DisableEnableButtonHeaderDisabled }
+                    $sender.Icon = $DisableEnableButtonIconDisabled
+                    Remove-ChildToItemsButtonMenu ([ref]$Parent) ([ref]$sender)
+                    Add-CustomMenuChild ([ref]$Parent) ([ref]$sender)
 
-        })
-    return $DisableEnableAllArrayItemsButton
-} # function New-DisableEnableAllArrayItemsButton
-
-function New-DeleteAllArrayItemsButton {
-    param(
-        $ActionFrom = $ContentHeaderBorderName
-    )
-    # Button: Delete All Array Items
-    $DeleteAllArrayItemsButton = New-BaseMenuItem @{
-        Name   = "$ActionFrom`_$DeleteAllArrayItemsButtonNameSuffix"
-        Header = $DeleteButtonHeader + ' All'
-        Icon   = $DeleteButtonIcon
-    }
-    $DeleteAllArrayItemsButton.Add_Click({
-            param($sender, $e)
-            # Remove all children from the ContentSlotElement of the parent ContentWrapper
-            $ContentWrapper = Find-ObjectWhere -Object ([ref]$sender) -FindWhere { $_.Name -eq "$($sender.Name.Replace("_$DeleteAllArrayItemsButtonNameSuffix", ''))" } -DigProperties 'Parent' -FindMax 1
-            $ContentSlotElement = Find-ObjectWhere -Object ([ref]$ContentWrapper) -FindWhere { $_.Name -eq $ContentSlotElementName } -FindMax 1
-            :Delete foreach ($Child in $ContentSlotElement.Children) {
-                if ((Get-IsLocked $Child)) { continue Delete } # TODO: Flash Lock
-                $ContentSlotElement.Children.Remove($Child)
-                # $ContentSlotElement.Children.RemoveRange(0, $ContentSlotElement.Children.Count)
-            } # Delete
-            # Reset Enable/Disable All button state
-            $DisableEnableAllArrayItemsButton = Find-ObjectWhere -Object ([ref]$ContentWrapper) -FindWhere { $_.Name -like "*$DisableEnableAllArrayItemsButtonNameSuffix" } -FindMax 1
-            if ($DisableEnableAllArrayItemsButton) {
-                $DisableEnableAllArrayItemsButton.Header = $DisableEnableButtonDisabledHeader + ' All'
-                $DisableEnableAllArrayItemsButton.Icon = $DisableEnableButtonDisabledIcon
+                    if ($IsAll) {
+                        $ContentWrapper = Find-ObjectWhere -Object ([ref]$sender) -FindWhere { $_.Name -eq "$($sender.Name.Replace("_$DisableEnableButtonNameSuffix", ''))" } -DigProperties 'Parent' -FindMax 1
+                        $ChildButtons = Find-ObjectWhere -Object ([ref]$ContentWrapper) -FindWhere { $_.Name -like "*$DisableEnableButtonNameSuffix" -and $_ -ne $sender }
+                        :ChildButtons foreach ($ChildButton in $ChildButtons) {
+                            if ((Get-IsLocked $ChildButton)) { continue ChildButtons }
+                            if ($ChildButton.Icon -eq $DisableEnableButtonIconEnabled) {
+                                $ChildParent = $ChildButton.Parent
+                                $ChildButton.Tag = $ChildParent.Items.IndexOf($ChildButton)
+                                $ChildButton.Header = $DisableEnableButtonHeaderDisabled
+                                $ChildButton.Icon = $DisableEnableButtonIconDisabled
+                                Remove-ChildToItemsButtonMenu ([ref]$ChildParent) ([ref]$ChildButton)
+                                Add-CustomMenuChild ([ref]$ChildParent) ([ref]$ChildButton)
+                            }
+                        }
+                    }
+                    else {
+                        Confirm-ArrayEnableButton -Item ([ref]$sender)
+                    }
+                }
             }
         })
-    return $DeleteAllArrayItemsButton
-} # function New-DeleteAllArrayItemsButton
+
+    return $DisableEnableButton
+} # function New-DisableEnableButton
+
+function New-DeleteButton {
+    param(
+        [string]$Header = $DeleteButtonHeader,
+        [string]$ActionFrom = $ContentHeaderBorderName
+    )
+
+    $DeleteButton = New-BaseMenuItem @{
+        Name   = "$ActionFrom`_$DeleteButtonNameSuffix"
+        Header = $Header
+        Icon   = $DeleteButtonIcon
+    }
+
+    $DeleteButton.Add_Click({
+            param($sender, $e)
+            if ((Get-IsLocked $sender)) { return }
+            $ContentWrapper = Find-ObjectWhere -Object ([ref]$sender) -FindWhere { $_.Name -eq "$($sender.Name.Replace("_$DeleteButtonNameSuffix", ''))" } -DigProperties 'Parent' -FindMax 1
+            if (-not $ContentWrapper) { return }
+
+            $IsAll = $sender.Header -like '* All'
+            if ($IsAll) {
+                $ContentSlotElement = Find-ObjectWhere -Object ([ref]$ContentWrapper) -FindWhere { $_.Name -eq $ContentSlotElementName } -FindMax 1
+                if ($ContentSlotElement) {
+                    :Delete foreach ($Child in @($ContentSlotElement.Children)) {
+                        if ((Get-IsLocked $Child)) { continue Delete } # TODO: Flash Lock
+                        $ContentSlotElement.Children.Remove($Child)
+                    }
+                    Reset-ArrayIndexes ([ref]$ContentSlotElement)
+                    Confirm-ArrayEnableButton -Item ([ref]$ContentWrapper)
+                }
+            }
+            else {
+                if ((Get-IsLocked $ContentWrapper)) { return }
+                $Array = $ContentWrapper.Parent
+                if ($Array) {
+                    $Array.Children.Remove($ContentWrapper)
+                    Reset-ArrayIndexes ([ref]$Array)
+                    Confirm-ArrayEnableButton -Item ([ref]$Array)
+                }
+            }
+        }
+    )
+
+    return $DeleteButton
+} # function New-DeleteButton
 
 function New-LockButton {
     param($ActionFrom)
@@ -1793,9 +1945,13 @@ function New-LockButton {
                     $sender.Header = $LockUnlockButtonHeaderUnlocked
                     $sender.Icon = $LockUnlockButtonIconUnlocked
                     Remove-CustomMenuChild ([ref]$Parent) ([ref]$sender)
-                    Add-ChildToItemsButtonMenu ([ref]$Parent) ([ref]$sender) 2
+                    Add-ChildToItemsButtonMenu ([ref]$Parent) ([ref]$sender) $sender.Tag
+                    # Remove LockButton Index from Tag property
+                    $sender.Tag = $null
                 }
                 $LockUnlockButtonIconUnlocked {
+                    # Add LockButton Index to Tag property
+                    $sender.Tag = $Parent.Items.IndexOf($sender)
                     $sender.Header = $LockUnlockButtonHeaderLocked
                     $sender.Icon = $LockUnlockButtonIconLocked
                     Remove-ChildToItemsButtonMenu ([ref]$Parent) ([ref]$sender)
@@ -1811,12 +1967,49 @@ function New-LockButton {
 
 function Get-IsLocked {
     param($Object)
-    $ContentHeaderBorder = Find-ObjectWhere -Object $Object -FindWhere { $_.Name -eq $ContentHeaderBorderName } -DigProperties 'Parent' -FindMax 1
-    $LockButton = Find-ObjectWhere -Object ([ref]$ContentHeaderBorder) -FindWhere { $_.Name -eq $LockUnlockButtonName } -FindMax 1
-    $LockButtonValue = Get-ContentValue $LockButton
+    $Target = if ($Object -is [System.Management.Automation.PSReference]) { $Object.Value } else { $Object }
+    $ContentBorders = @()
+    if (@($ContentHeaderBorderName, $ContentBorderName) -contains $Target.Name) {
+        $ContentBorders += $Target
+    }
+    $ParentBorders = Find-ObjectWhere -Object ([ref]$Target) -FindWhere { @($ContentHeaderBorderName, $ContentBorderName) -contains $_.Name } -DigProperties 'Parent'
+    if ($ParentBorders) {
+        $ContentBorders += $ParentBorders
+    }
 
-    return $LockButtonValue -eq $LockUnlockButtonHeaderLocked
+    :Borders foreach ($ContentBorder in $ContentBorders) {
+        $LockButton = Find-ObjectWhere -Object ([ref]$ContentBorder) -FindWhere { $_.Name -eq $LockUnlockButtonName } -FindMax 1
+        $LockButtonValue = Get-ContentValue $LockButton
+        if ($LockButtonValue -eq $LockUnlockButtonHeaderLocked) {
+            return $true
+        }
+    }
+
+    return $false
 } # function Get-IsLocked
+
+function Get-IsDisabled {
+    param($Object)
+    $Target = if ($Object -is [System.Management.Automation.PSReference]) { $Object.Value } else { $Object }
+    $ContentBorders = @()
+    if (@($ContentHeaderBorderName, $ContentBorderName) -contains $Target.Name) {
+        $ContentBorders += $Target
+    }
+    $ParentBorders = Find-ObjectWhere -Object ([ref]$Target) -FindWhere { @($ContentHeaderBorderName, $ContentBorderName) -contains $_.Name } -DigProperties 'Parent'
+    if ($ParentBorders) {
+        $ContentBorders += $ParentBorders
+    }
+
+    :Borders foreach ($ContentBorder in $ContentBorders) {
+        $DisableEnableButton = Find-ObjectWhere -Object ([ref]$ContentBorder) -FindWhere { $_.Name -like "*$DisableEnableButtonNameSuffix" } -FindMax 1
+        $DisableEnableButtonValue = Get-ContentValue $DisableEnableButton
+        if ($DisableEnableButtonValue -like "$DisableEnableButtonHeaderDisabled*") {
+            return $true
+        }
+    }
+
+    return $false
+} # function Get-IsDisabled
 
 #endregion #3 Button Elements
 
