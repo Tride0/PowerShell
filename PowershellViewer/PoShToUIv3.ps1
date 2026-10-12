@@ -3,7 +3,6 @@
         Array Actions
             1 Random Values 
                 9. FUTURE FEATURE: Customize how they generate.
-            Search - Highlights matches
             Filter - Removes non-matching items
             Sort
                 By: Property, Value
@@ -106,6 +105,14 @@ $IndexBoxNameSuffix = 'IndexBox'
 $CustomDateTimePickerName = 'CustomDateTimePicker'
 $ContentDateTimeDisplayTextBoxName = 'DisplayTextBox'
 
+$SearchButtonNameSuffix = 'SearchButton'
+$SearchBarNameSuffix = 'SearchBar'
+$SearchInputNameSuffix = 'SearchInput'
+$SearchCountNameSuffix = 'SearchCount'
+$SearchPrevButtonNameSuffix = 'SearchPrevButton'
+$SearchNextButtonNameSuffix = 'SearchNextButton'
+$SearchCloseButtonNameSuffix = 'SearchCloseButton'
+
 # UI Element Headers, Icons, & ToolTips
 $MinMaxButtonMaxedIcon = '🔽'
 $MinMaxButtonMaxedToolTip = "Minimize`nSHIFT: Alternate Behavior"
@@ -127,7 +134,6 @@ $LockUnlockButtonHeaderLocked = '🔒'
 $LockUnlockButtonIconLocked = $null
 $LockUnlockButtonHeaderUnlocked = 'Lock'
 $LockUnlockButtonIconUnlocked = '🔓'
-# $SettingsIcon = '⚙' #3 Not used yet
 
 $ConstructButtonHeader = 'Construct'
 $ConstructButtonIcon = '🔨'
@@ -135,7 +141,11 @@ $ConstructButtonIcon = '🔨'
 $DragHandleIcon = '☰'
 $DragHandleToolTip = "Drag to reorder`nSHIFT: Swap positions"
 
+$SearchButtonHeader = 'Search'
+$SearchButtonIcon = '🔍'
+$SearchButtonToolTip = "Search (Ctrl+F)"
 
+$SearchOriginalStyles = @{}
 
 #endregion #0 Variables
 
@@ -811,7 +821,8 @@ function New-ContentHeader {
         [int]$Depth = 0
     )
 
-    $IsArray = $Type.IsArray
+    $IsArray = ($null -ne $Type -and $Type.IsArray) -or ($Description -match '\[\]')
+    if (-not $WrapperType) { $WrapperType = $TitleType }
 
     $ContentHeaderBorder = New-BaseBorder @{
         Name            = $ContentHeaderBorderName
@@ -895,6 +906,10 @@ function New-ContentHeader {
     Add-BaseDockPanelChild ([ref]$ContentHeaderTitleBorderDock) ([ref]$ContentHeaderButtonMenu) 'Right'
 
     #endregion Buttons
+
+    # Search Bar
+    $SearchBar = New-SearchBar -WrapperName $ContentHeaderBorderName
+    $ContentHeaderBorderStack.AddChild($SearchBar) | Out-Null
 
     # Content Slot
     $ContentSlot = New-BaseStackPanel @{
@@ -995,7 +1010,7 @@ function New-TypeContent {
         }
     }
 
-    $ContentWrapper = New-ContentWrapper -WrapperType $WrapperType -Type $TargetType -Title $Title -Description $Description -ArrayItem ($ArrayType -eq 'ArrayItem') -Depth $Depth
+    $ContentWrapper = New-ContentWrapper -WrapperType $WrapperType -Type $Type -Title $Title -Description $Description -ArrayItem ($ArrayType -eq 'ArrayItem') -Depth $Depth
 
     if ($null -ne $ContentWrapper) { $Top = $ContentWrapper }
     elseif ($null -ne $Content) { $Top = $Content }
@@ -1014,7 +1029,20 @@ function New-TypeContent {
         Add-ContentToWrapper ([ref]$ContentWrapper) ([ref]$Content)
     }
 
+    $IsConstruct = ($null -ne $Content -and $Content.Name -eq $ConstructName) -or $ConstructArray
+    $IsArrayType = $Type.IsArray -or ($ArrayType -eq 'Array')
+
     $Menu = Find-ObjectWhere -Object ([ref]$Top) -FindWhere { $_.Name -eq $MenuName } -FindMax 1
+
+    # For non-Construct, non-Array items, add Search to ButtonMenu above the Lock button
+    if (-not $IsConstruct -and -not $IsArrayType -and $ArrayType -ne 'ArrayItem') {
+        $SearchButton = Find-ObjectWhere -Object ([ref]$Menu) -FindWhere { $_.Name -like "*$SearchButtonNameSuffix" }
+        if ($null -eq $SearchButton) {
+            $SearchButton = New-SearchButton -Header $SearchButtonHeader -Icon $SearchButtonIcon -ActionFrom $Top.Name
+            Add-ChildToItemsButtonMenu ([ref]$Top) ([ref]$SearchButton)
+        }
+    }
+
     $LockButton = Find-ObjectWhere -Object ([ref]$Menu) -FindWhere { $_.Name -eq $LockUnlockButtonName }
     if ($null -eq $LockButton) {
         $LockButton = New-LockButton -ActionFrom $Top.Name
@@ -1062,6 +1090,8 @@ function New-TypeContent {
         }
         else {
             Add-CustomMenuChild ([ref]$Top) ([ref]$ConstructButton)
+            $SearchButton = New-SearchButton -ActionFrom $Top.Name
+            Add-CustomMenuChild ([ref]$Top) ([ref]$SearchButton)
         }
     }
 
@@ -1123,6 +1153,10 @@ function Add-ArrayFunctionality {
         # Button: Add
         $AddButton = New-AddArrayItemButton -Type $Wrapper.Value.DataContext
         Add-CustomMenuChild $Wrapper ([ref]$AddButton)
+
+        # Button: Search
+        $SearchButton = New-SearchButton -ActionFrom $Wrapper.Value.Name
+        Add-CustomMenuChild $Wrapper ([ref]$SearchButton)
 
         # Button: Lock, Unlock All
         $LockUnlockButton = New-LockButton -ActionFrom $Wrapper.Value.Name
@@ -1224,11 +1258,506 @@ function Get-ContentValue {
         'ComboBox' { $Object.SelectedItem }
         'Button' { $Object.Content }
         'MenuItem' { $Object.Header }
+        'TextBlock' { $Object.Text }
+        'RichTextBox' {
+            $Range = New-Object System.Windows.Documents.TextRange($Object.Document.ContentStart, $Object.Document.ContentEnd)
+            $Range.Text.TrimEnd("`r`n")
+        }
+        'Grid' {
+            if ($Object.Name -eq $CustomDateTimePickerName) {
+                $DateBox = Find-ObjectWhere -Object ([ref]$Object) -FindWhere { $_.Name -eq $ContentDateTimeDisplayTextBoxName } -FindMax 1
+                if ($DateBox) { $DateBox.Text }
+            }
+        }
     }
 
     if ([bool]$Value) { return $Value }
     else { return $null }
 } # function Get-ContentValue
+
+function Expand-ElementParents {
+    param([Parameter(Mandatory)]$Element)
+    $Curr = $Element
+    while ($Curr -and $Curr -ne $BaseWindow) {
+        $Parent = $Curr.Parent
+        if (-not $Parent) { break }
+
+        if ($Parent.Name -eq $ContentSlotElementName -and $Parent.Visibility -ne 'Visible') {
+            $Parent.Visibility = 'Visible'
+            $HeaderBorder = Find-ObjectWhere -Object ([ref]$Parent) -FindWhere { @($ContentHeaderBorderName, $ContentBorderName) -contains $_.Name } -DigProperties 'Parent' -FindMax 1
+            if ($HeaderBorder) {
+                $MinMaxBtn = Find-ObjectWhere -Object ([ref]$HeaderBorder) -FindWhere { $_.Name -eq $MinMaxButtonName } -FindMax 1
+                if ($MinMaxBtn) {
+                    $MinMaxBtn.Header = $MinMaxButtonMinedIcon
+                    $MinMaxBtn.ToolTip = $MinMaxButtonMinedToolTip
+                }
+            }
+        }
+        $Curr = $Parent
+    }
+} # function Expand-ElementParents
+
+function Set-BorderHighlight {
+    param(
+        [Parameter(Mandatory)]$Target,
+        [ValidateSet('Match', 'Active')][string]$HighlightType = 'Match'
+    )
+    if (-not $Target) { return }
+
+    if ([string]::IsNullOrEmpty($Target.Uid)) {
+        $Target.Uid = [guid]::NewGuid().ToString()
+    }
+
+    if (-not $SearchOriginalStyles.ContainsKey($Target.Uid)) {
+        $SearchOriginalStyles[$Target.Uid] = @{
+            Element         = $Target
+            Type            = 'Control'
+            BorderBrush     = $Target.BorderBrush
+            BorderThickness = $Target.BorderThickness
+        }
+    }
+
+    $BrushConverter = [System.Windows.Media.BrushConverter]::new()
+    if ($HighlightType -eq 'Active') {
+        $Target.BorderBrush = $BrushConverter.ConvertFromString('#E67E22')
+        $Target.BorderThickness = [System.Windows.Thickness]::new(3.5)
+    }
+    else {
+        $Target.BorderBrush = $BrushConverter.ConvertFromString('#F1C40F')
+        $Target.BorderThickness = [System.Windows.Thickness]::new(2.5)
+    }
+} # function Set-BorderHighlight
+
+function Set-ElementHighlight {
+    param(
+        [Parameter(Mandatory)][ref]$Element,
+        [ValidateSet('Match', 'Active')][string]$HighlightType = 'Match',
+        [string]$Query = ''
+    )
+    $Target = if ($Element -is [System.Management.Automation.PSReference]) { $Element.Value } else { $Element }
+    if (-not $Target) { return }
+
+    if ([string]::IsNullOrEmpty($Target.Uid)) {
+        $Target.Uid = [guid]::NewGuid().ToString()
+    }
+
+    # Expand any collapsed parent container so this item is visible
+    Expand-ElementParents -Element $Target
+
+    $BrushConverter = [System.Windows.Media.BrushConverter]::new()
+
+    if ($Target -is [System.Windows.Controls.TextBlock]) {
+        if (-not $SearchOriginalStyles.ContainsKey($Target.Uid)) {
+            $SearchOriginalStyles[$Target.Uid] = @{
+                Element    = $Target
+                Type       = 'TextBlock'
+                Background = $Target.Background
+                Foreground = $Target.Foreground
+                FontWeight = $Target.FontWeight
+            }
+        }
+
+        if ($HighlightType -eq 'Active') {
+            $Target.Background = $BrushConverter.ConvertFromString('#E67E22')
+            $Target.Foreground = $BrushConverter.ConvertFromString('#FFFFFF')
+            $Target.FontWeight = [System.Windows.FontWeights]::Bold
+        }
+        else {
+            $Target.Background = $BrushConverter.ConvertFromString('#F1C40F')
+            $Target.Foreground = $BrushConverter.ConvertFromString('#1E1E1E')
+            $Target.FontWeight = [System.Windows.FontWeights]::Bold
+        }
+
+        # Also highlight its immediate field border (e.g. MiniHeader) so the field is clearly identifiable
+        $ParentFieldBorder = Find-ObjectWhere -Object ([ref]$Target) -FindWhere { @($ContentHeaderBorderName, $ContentBorderName) -contains $_.Name } -DigProperties 'Parent' -FindMax 1
+        if ($ParentFieldBorder) {
+            Set-BorderHighlight -Target $ParentFieldBorder -HighlightType $HighlightType
+        }
+    }
+    elseif ($Target -is [System.Windows.Controls.RichTextBox]) {
+        # RichTextBox: Highlight control border AND matching text in document
+        if (-not $SearchOriginalStyles.ContainsKey($Target.Uid)) {
+            $Range = New-Object System.Windows.Documents.TextRange($Target.Document.ContentStart, $Target.Document.ContentEnd)
+            $SearchOriginalStyles[$Target.Uid] = @{
+                Element         = $Target
+                Type            = 'RichTextBox'
+                BorderBrush     = $Target.BorderBrush
+                BorderThickness = $Target.BorderThickness
+                OriginalText    = $Range.Text.TrimEnd("`r`n")
+            }
+        }
+
+        if ($HighlightType -eq 'Active') {
+            $Target.BorderBrush = $BrushConverter.ConvertFromString('#E67E22')
+            $Target.BorderThickness = [System.Windows.Thickness]::new(3.5)
+        }
+        else {
+            $Target.BorderBrush = $BrushConverter.ConvertFromString('#F1C40F')
+            $Target.BorderThickness = [System.Windows.Thickness]::new(2.5)
+        }
+
+        $OrigText = $SearchOriginalStyles[$Target.Uid].OriginalText
+        if (-not [string]::IsNullOrEmpty($Query) -and -not [string]::IsNullOrEmpty($OrigText)) {
+            $BgBrush = if ($HighlightType -eq 'Active') { $BrushConverter.ConvertFromString('#E67E22') } else { $BrushConverter.ConvertFromString('#F1C40F') }
+            $FgBrush = if ($HighlightType -eq 'Active') { $BrushConverter.ConvertFromString('#FFFFFF') } else { $BrushConverter.ConvertFromString('#1E1E1E') }
+
+            $Paragraph = New-Object System.Windows.Documents.Paragraph
+            $Paragraph.Margin = [System.Windows.Thickness]::new(0)
+
+            $CurrentIdx = 0
+            $QueryLen = $Query.Length
+            while ($CurrentIdx -lt $OrigText.Length) {
+                $MatchIdx = $OrigText.IndexOf($Query, $CurrentIdx, [System.StringComparison]::CurrentCultureIgnoreCase)
+                if ($MatchIdx -eq -1) {
+                    $Remaining = $OrigText.Substring($CurrentIdx)
+                    $Paragraph.Inlines.Add((New-Object System.Windows.Documents.Run($Remaining))) | Out-Null
+                    break
+                }
+
+                if ($MatchIdx -gt $CurrentIdx) {
+                    $Before = $OrigText.Substring($CurrentIdx, $MatchIdx - $CurrentIdx)
+                    $Paragraph.Inlines.Add((New-Object System.Windows.Documents.Run($Before))) | Out-Null
+                }
+
+                $MatchedText = $OrigText.Substring($MatchIdx, $QueryLen)
+                $MatchedRun = New-Object System.Windows.Documents.Run($MatchedText)
+                $MatchedRun.Background = $BgBrush
+                $MatchedRun.Foreground = $FgBrush
+                $MatchedRun.FontWeight = [System.Windows.FontWeights]::Bold
+                $Paragraph.Inlines.Add($MatchedRun) | Out-Null
+
+                $CurrentIdx = $MatchIdx + $QueryLen
+            }
+
+            $Target.Document.Blocks.Clear()
+            $Target.Document.Blocks.Add($Paragraph)
+        }
+
+        # Also highlight parent field border if inside one
+        $ParentFieldBorder = Find-ObjectWhere -Object ([ref]$Target) -FindWhere { @($ContentHeaderBorderName, $ContentBorderName) -contains $_.Name } -DigProperties 'Parent' -FindMax 1
+        if ($ParentFieldBorder) {
+            Set-BorderHighlight -Target $ParentFieldBorder -HighlightType $HighlightType
+        }
+    }
+    else {
+        if (-not $SearchOriginalStyles.ContainsKey($Target.Uid)) {
+            $SearchOriginalStyles[$Target.Uid] = @{
+                Element         = $Target
+                Type            = 'Control'
+                BorderBrush     = $Target.BorderBrush
+                BorderThickness = $Target.BorderThickness
+            }
+        }
+
+        if ($HighlightType -eq 'Active') {
+            $Target.BorderBrush = $BrushConverter.ConvertFromString('#E67E22')
+            $Target.BorderThickness = [System.Windows.Thickness]::new(3.5)
+        }
+        else {
+            $Target.BorderBrush = $BrushConverter.ConvertFromString('#F1C40F')
+            $Target.BorderThickness = [System.Windows.Thickness]::new(2.5)
+        }
+
+        # If it's a content control inside a field (e.g. MiniHeader), also highlight the parent field border
+        if ($Target.Name -eq $ContentElementName -or $Target.Name -eq $ContentDateTimeDisplayTextBoxName) {
+            $ParentFieldBorder = Find-ObjectWhere -Object ([ref]$Target) -FindWhere { @($ContentHeaderBorderName, $ContentBorderName) -contains $_.Name } -DigProperties 'Parent' -FindMax 1
+            if ($ParentFieldBorder) {
+                Set-BorderHighlight -Target $ParentFieldBorder -HighlightType $HighlightType
+            }
+        }
+    }
+} # function Set-ElementHighlight
+
+function Reset-ElementHighlight {
+    param([Parameter(Mandatory)][ref]$Element)
+    $Target = if ($Element -is [System.Management.Automation.PSReference]) { $Element.Value } else { $Element }
+    if (-not $Target) { return }
+
+    if ($Target.Uid -and $SearchOriginalStyles.ContainsKey($Target.Uid)) {
+        $Original = $SearchOriginalStyles[$Target.Uid]
+        if ($Original.Type -eq 'TextBlock') {
+            $Target.Background = $Original.Background
+            $Target.Foreground = $Original.Foreground
+            $Target.FontWeight = $Original.FontWeight
+        }
+        elseif ($Original.Type -eq 'RichTextBox') {
+            $Target.BorderBrush = $Original.BorderBrush
+            $Target.BorderThickness = $Original.BorderThickness
+            if ($null -ne $Original.OriginalText) {
+                $Paragraph = New-Object System.Windows.Documents.Paragraph
+                $Paragraph.Margin = [System.Windows.Thickness]::new(0)
+                $Paragraph.Inlines.Add($Original.OriginalText) | Out-Null
+                $Target.Document.Blocks.Clear()
+                $Target.Document.Blocks.Add($Paragraph)
+            }
+        }
+        else {
+            $Target.BorderBrush = $Original.BorderBrush
+            $Target.BorderThickness = $Original.BorderThickness
+        }
+        $SearchOriginalStyles.Remove($Target.Uid)
+    }
+
+    # Reset parent field border if it was highlighted
+    $ParentFieldBorder = Find-ObjectWhere -Object ([ref]$Target) -FindWhere { @($ContentHeaderBorderName, $ContentBorderName) -contains $_.Name } -DigProperties 'Parent' -FindMax 1
+    if ($ParentFieldBorder -and $ParentFieldBorder.Uid -and $SearchOriginalStyles.ContainsKey($ParentFieldBorder.Uid)) {
+        $BorderOrig = $SearchOriginalStyles[$ParentFieldBorder.Uid]
+        $ParentFieldBorder.BorderBrush = $BorderOrig.BorderBrush
+        $ParentFieldBorder.BorderThickness = $BorderOrig.BorderThickness
+        $SearchOriginalStyles.Remove($ParentFieldBorder.Uid)
+    }
+} # function Reset-ElementHighlight
+
+function Test-ElementMatchesQuery {
+    param(
+        [Parameter(Mandatory)]$Element,
+        [Parameter(Mandatory)][string]$Query
+    )
+    if ([string]::IsNullOrWhiteSpace($Query)) { return $false }
+
+    $MatchedParts = [System.Collections.ArrayList]@()
+
+    # 1. Match titles / property names inside element
+    if ($Element.Name -eq $ContentHeaderTitleValueName) {
+        if ($Element.Text -and $Element.Text.IndexOf($Query, [System.StringComparison]::CurrentCultureIgnoreCase) -ge 0) {
+            [void]$MatchedParts.Add($Element)
+        }
+    }
+    $TitleBlocks = Find-ObjectWhere -Object ([ref]$Element) -FindWhere { $_.Name -eq $ContentHeaderTitleValueName }
+    :Titles foreach ($TBlock in $TitleBlocks) {
+        if ($TBlock.Text -and $TBlock.Text.IndexOf($Query, [System.StringComparison]::CurrentCultureIgnoreCase) -ge 0) {
+            [void]$MatchedParts.Add($TBlock)
+        }
+    }
+
+    # 2. Match descriptions inside element
+    if ($Element.Name -eq $ContentHeaderDescriptionValueName) {
+        if ($Element.Text -and $Element.Text.IndexOf($Query, [System.StringComparison]::CurrentCultureIgnoreCase) -ge 0) {
+            [void]$MatchedParts.Add($Element)
+        }
+    }
+    $DescBlocks = Find-ObjectWhere -Object ([ref]$Element) -FindWhere { $_.Name -eq $ContentHeaderDescriptionValueName }
+    :Descs foreach ($DBlock in $DescBlocks) {
+        if ($DBlock.Text -and $DBlock.Text.IndexOf($Query, [System.StringComparison]::CurrentCultureIgnoreCase) -ge 0) {
+            [void]$MatchedParts.Add($DBlock)
+        }
+    }
+
+    # 3. Match content controls inside element
+    $Contents = @()
+    if ($Element.Name -eq $ContentElementName) {
+        $Contents += $Element
+    }
+    $ChildContents = Find-ObjectWhere -Object ([ref]$Element) -FindWhere { $_.Name -eq $ContentElementName }
+    if ($ChildContents) {
+        $Contents += $ChildContents
+    }
+    :Contents foreach ($Content in $Contents) {
+        $Val = Get-ContentValue $Content
+        if ($null -ne $Val) {
+            $StrVal = "$Val"
+            if ($StrVal.IndexOf($Query, [System.StringComparison]::CurrentCultureIgnoreCase) -ge 0) {
+                [void]$MatchedParts.Add($Content)
+            }
+        }
+        if ($Content -is [System.Windows.Controls.ComboBox] -and $Content.ItemsSource) {
+            foreach ($Item in $Content.ItemsSource) {
+                if ($Item -and "$Item".IndexOf($Query, [System.StringComparison]::CurrentCultureIgnoreCase) -ge 0) {
+                    if (-not $MatchedParts.Contains($Content)) {
+                        [void]$MatchedParts.Add($Content)
+                    }
+                    break
+                }
+            }
+        }
+    }
+
+    # 4. Match DateTime pickers inside element
+    $DateTimePickers = Find-ObjectWhere -Object ([ref]$Element) -FindWhere { $_.Name -eq $CustomDateTimePickerName }
+    :DTPs foreach ($DTP in $DateTimePickers) {
+        $DateBox = Find-ObjectWhere -Object ([ref]$DTP) -FindWhere { $_.Name -eq $ContentDateTimeDisplayTextBoxName } -FindMax 1
+        if ($DateBox -and $DateBox.Text -and $DateBox.Text.IndexOf($Query, [System.StringComparison]::CurrentCultureIgnoreCase) -ge 0) {
+            [void]$MatchedParts.Add($DateBox)
+        }
+    }
+
+    # 5. Match Index boxes inside element
+    $IndexBoxes = Find-ObjectWhere -Object ([ref]$Element) -FindWhere { $_.Name -like "*$IndexBoxNameSuffix" }
+    :Indices foreach ($IBox in $IndexBoxes) {
+        if ($IBox.Text -and $IBox.Text.Trim() -eq $Query.Trim()) {
+            [void]$MatchedParts.Add($IBox)
+        }
+    }
+
+    if ($MatchedParts.Count -gt 0) {
+        return $MatchedParts
+    }
+    return $null
+} # function Test-ElementMatchesQuery
+
+function Clear-SearchHighlights {
+    param([Parameter(Mandatory)][ref]$SearchBar)
+
+    # Clean up all highlighted elements in $SearchOriginalStyles
+    if ($SearchOriginalStyles.Count -gt 0) {
+        $Uids = @($SearchOriginalStyles.Keys)
+        foreach ($Uid in $Uids) {
+            $Entry = $SearchOriginalStyles[$Uid]
+            if ($Entry -and $Entry.Element) {
+                $El = $Entry.Element
+                if ($Entry.Type -eq 'TextBlock') {
+                    $El.Background = $Entry.Background
+                    $El.Foreground = $Entry.Foreground
+                    $El.FontWeight = $Entry.FontWeight
+                }
+                elseif ($Entry.Type -eq 'RichTextBox') {
+                    $El.BorderBrush = $Entry.BorderBrush
+                    $El.BorderThickness = $Entry.BorderThickness
+                    if ($null -ne $Entry.OriginalText) {
+                        $Paragraph = New-Object System.Windows.Documents.Paragraph
+                        $Paragraph.Margin = [System.Windows.Thickness]::new(0)
+                        $Paragraph.Inlines.Add($Entry.OriginalText) | Out-Null
+                        $El.Document.Blocks.Clear()
+                        $El.Document.Blocks.Add($Paragraph)
+                    }
+                }
+                else {
+                    $El.BorderBrush = $Entry.BorderBrush
+                    $El.BorderThickness = $Entry.BorderThickness
+                }
+            }
+        }
+        $SearchOriginalStyles.Clear()
+    }
+
+    if ($SearchBar.Value.Tag) {
+        if ($SearchBar.Value.Tag.Matches) {
+            $SearchBar.Value.Tag.Matches.Clear()
+        }
+        $SearchBar.Value.Tag.CurrentIndex = -1
+        $SearchBar.Value.Tag.Query = ''
+    }
+
+    $CountBlock = Find-ObjectWhere -Object $SearchBar -FindWhere { $_.Name -like "*$SearchCountNameSuffix" } -FindMax 1
+    if ($CountBlock) { $CountBlock.Text = '' }
+} # function Clear-SearchHighlights
+
+function Close-SearchBar {
+    param([Parameter(Mandatory)]$ChildElement)
+    $Target = if ($ChildElement -is [System.Management.Automation.PSReference]) { $ChildElement.Value } else { $ChildElement }
+    $SearchBar = if ($Target.Name -like "*$SearchBarNameSuffix") { $Target } else {
+        Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $_.Name -like "*$SearchBarNameSuffix" } -DigProperties 'Parent' -FindMax 1
+    }
+    if (-not $SearchBar) { return }
+
+    Clear-SearchHighlights -SearchBar ([ref]$SearchBar)
+    $SearchBar.Visibility = 'Collapsed'
+} # function Close-SearchBar
+
+function Invoke-SearchExecution {
+    param([Parameter(Mandatory)]$SearchBox)
+
+    $SearchBar = Find-ObjectWhere -Object ([ref]$SearchBox) -FindWhere { $_.Name -like "*$SearchBarNameSuffix" } -DigProperties 'Parent' -FindMax 1
+    if (-not $SearchBar) { return }
+
+    $ContentHeaderBorder = Find-ObjectWhere -Object ([ref]$SearchBar) -FindWhere { $_.Name -eq $ContentHeaderBorderName } -DigProperties 'Parent' -FindMax 1
+    if (-not $ContentHeaderBorder) { return }
+
+    $ContentHeaderBorderStack = Find-ObjectWhere -Object ([ref]$ContentHeaderBorder) -FindWhere { $_.Name -eq $ContentHeaderBorderStackName } -FindMax 1
+    if (-not $ContentHeaderBorderStack) { return }
+
+    $ContentSlot = $ContentHeaderBorderStack.Children | Where-Object { $_.Name -eq $ContentSlotElementName }
+    if (-not $ContentSlot) { return }
+
+    Clear-SearchHighlights -SearchBar ([ref]$SearchBar)
+
+    $Query = $SearchBox.Text
+    $CountBlock = Find-ObjectWhere -Object ([ref]$SearchBar) -FindWhere { $_.Name -like "*$SearchCountNameSuffix" } -FindMax 1
+
+    if ([string]::IsNullOrWhiteSpace($Query)) {
+        if ($CountBlock) { $CountBlock.Text = '' }
+        return
+    }
+
+    $MatchedElements = [System.Collections.ArrayList]@()
+    :Children foreach ($Child in @($ContentSlot.Children)) {
+        $Matches = Test-ElementMatchesQuery -Element $Child -Query $Query
+        if ($Matches) {
+            :Matches foreach ($MatchItem in $Matches) {
+                if (-not $MatchedElements.Contains($MatchItem)) {
+                    [void]$MatchedElements.Add($MatchItem)
+                }
+            }
+        }
+    }
+
+    if ($MatchedElements.Count -eq 0) {
+        if ($CountBlock) {
+            $CountBlock.Text = '0 / 0'
+            $CountBlock.Foreground = '#FF7675'
+        }
+        return
+    }
+
+    $SearchBar.Tag.Query = $Query
+    :Matches foreach ($Match in $MatchedElements) {
+        Set-ElementHighlight -Element ([ref]$Match) -HighlightType 'Match' -Query $Query
+    }
+
+    $SearchBar.Tag.Matches = $MatchedElements
+    $SearchBar.Tag.CurrentIndex = 0
+    Set-ElementHighlight -Element ([ref]$MatchedElements[0]) -HighlightType 'Active' -Query $Query
+    $MatchedElements[0].BringIntoView()
+
+    if ($CountBlock) {
+        $CountBlock.Text = "1 / $($MatchedElements.Count)"
+        $CountBlock.Foreground = '#C1B8D1'
+    }
+} # function Invoke-SearchExecution
+
+function Step-SearchMatch {
+    param(
+        [Parameter(Mandatory)]$ChildElement,
+        [ValidateSet('Next', 'Prev')][string]$Direction = 'Next'
+    )
+
+    $SearchBar = if ($ChildElement.Name -like "*$SearchBarNameSuffix") { $ChildElement } else {
+        Find-ObjectWhere -Object ([ref]$ChildElement) -FindWhere { $_.Name -like "*$SearchBarNameSuffix" } -DigProperties 'Parent' -FindMax 1
+    }
+    if (-not $SearchBar -or -not $SearchBar.Tag -or $SearchBar.Tag.Matches.Count -eq 0) { return }
+
+    $ValidMatches = [System.Collections.ArrayList]@($SearchBar.Tag.Matches | Where-Object { $null -ne $_.Parent })
+    if ($ValidMatches.Count -eq 0) {
+        Clear-SearchHighlights -SearchBar ([ref]$SearchBar)
+        return
+    }
+    $SearchBar.Tag.Matches = $ValidMatches
+
+    $Matches = $SearchBar.Tag.Matches
+    $CurrentIdx = $SearchBar.Tag.CurrentIndex
+    $Query = if ($SearchBar.Tag -and $SearchBar.Tag.Query) { $SearchBar.Tag.Query } else { '' }
+
+    if ($CurrentIdx -ge 0 -and $CurrentIdx -lt $Matches.Count) {
+        Set-ElementHighlight -Element ([ref]$Matches[$CurrentIdx]) -HighlightType 'Match' -Query $Query
+    }
+
+    if ($Direction -eq 'Next') {
+        $NewIdx = ($CurrentIdx + 1) % $Matches.Count
+    }
+    else {
+        $NewIdx = ($CurrentIdx - 1 + $Matches.Count) % $Matches.Count
+    }
+
+    $SearchBar.Tag.CurrentIndex = $NewIdx
+    Set-ElementHighlight -Element ([ref]$Matches[$NewIdx]) -HighlightType 'Active' -Query $Query
+    $Matches[$NewIdx].BringIntoView()
+
+    $CountBlock = Find-ObjectWhere -Object ([ref]$SearchBar) -FindWhere { $_.Name -like "*$SearchCountNameSuffix" } -FindMax 1
+    if ($CountBlock) {
+        $CountBlock.Text = "$($NewIdx + 1) / $($Matches.Count)"
+        $CountBlock.Foreground = '#C1B8D1'
+    }
+} # function Step-SearchMatch
 
 #endregion #3 Content Controls Actions
 
@@ -1678,6 +2207,167 @@ function New-IndexBox {
     $IndexBlock
 } # function New-IndexBox
 
+function New-SearchBar {
+    param(
+        [string]$WrapperName = $ContentHeaderBorderName
+    )
+
+    $SearchBarBorder = New-BaseBorder @{
+        Name            = "$WrapperName`_$SearchBarNameSuffix"
+        Margin          = '2,1,2,3'
+        Padding         = '3'
+        BorderThickness = 1
+        BorderBrush     = '#6C6288'
+        Background      = '#2E273D'
+        Visibility      = 'Collapsed'
+    }
+
+    $SearchDock = New-BaseDockPanel @{
+        LastChildFill = $true
+    }
+    $SearchBarBorder.AddChild($SearchDock) | Out-Null
+
+    # Close button (Dock Right)
+    $CloseBtn = New-BaseButton @{
+        Content           = '✖'
+        Name              = "$WrapperName`_$SearchCloseButtonNameSuffix"
+        Width             = 22
+        Height            = 20
+        Margin            = '2,0,0,0'
+        Padding           = '0'
+        Background        = 'Transparent'
+        Foreground        = '#EDEAFA'
+        BorderThickness   = 0
+        Cursor            = 'Hand'
+        ToolTip           = 'Close Search (Esc)'
+        VerticalAlignment = 'Center'
+        Focusable         = $false
+    }
+    [System.Windows.Controls.DockPanel]::SetDock($CloseBtn, 'Right')
+    $SearchDock.Children.Add($CloseBtn) | Out-Null
+
+    # Next button (Dock Right)
+    $NextBtn = New-BaseButton @{
+        Content           = '▼'
+        Name              = "$WrapperName`_$SearchNextButtonNameSuffix"
+        Width             = 20
+        Height            = 20
+        Margin            = '1,0,1,0'
+        Padding           = '0'
+        Background        = 'Transparent'
+        Foreground        = '#EDEAFA'
+        BorderThickness   = 0
+        Cursor            = 'Hand'
+        ToolTip           = 'Next match (Enter)'
+        VerticalAlignment = 'Center'
+        Focusable         = $false
+    }
+    [System.Windows.Controls.DockPanel]::SetDock($NextBtn, 'Right')
+    $SearchDock.Children.Add($NextBtn) | Out-Null
+
+    # Prev button (Dock Right)
+    $PrevBtn = New-BaseButton @{
+        Content           = '▲'
+        Name              = "$WrapperName`_$SearchPrevButtonNameSuffix"
+        Width             = 20
+        Height            = 20
+        Margin            = '1,0,1,0'
+        Padding           = '0'
+        Background        = 'Transparent'
+        Foreground        = '#EDEAFA'
+        BorderThickness   = 0
+        Cursor            = 'Hand'
+        ToolTip           = 'Previous match (Shift+Enter)'
+        VerticalAlignment = 'Center'
+        Focusable         = $false
+    }
+    [System.Windows.Controls.DockPanel]::SetDock($PrevBtn, 'Right')
+    $SearchDock.Children.Add($PrevBtn) | Out-Null
+
+    # Match Counter (Dock Right)
+    $MatchCount = New-BaseTextBlock @{
+        Name              = "$WrapperName`_$SearchCountNameSuffix"
+        Text              = ''
+        Foreground        = '#C1B8D1'
+        FontSize          = 10
+        FontFamily        = $FontFamily
+        Margin            = '4,0,6,0'
+        VerticalAlignment = 'Center'
+    }
+    [System.Windows.Controls.DockPanel]::SetDock($MatchCount, 'Right')
+    $SearchDock.Children.Add($MatchCount) | Out-Null
+
+    # Search Icon (Dock Left)
+    $SearchIcon = New-BaseTextBlock @{
+        Text              = '🔍 '
+        Foreground        = '#EDEAFA'
+        VerticalAlignment = 'Center'
+        Margin            = '4,0,2,0'
+        FontSize          = 11
+    }
+    [System.Windows.Controls.DockPanel]::SetDock($SearchIcon, 'Left')
+    $SearchDock.Children.Add($SearchIcon) | Out-Null
+
+    # Search Input TextBox (Fill Center)
+    $SearchInput = New-BaseTextBox @{
+        Name              = "$WrapperName`_$SearchInputNameSuffix"
+        Background        = '#3D3452'
+        Foreground        = '#EDEAFA'
+        BorderBrush       = '#7A6E94'
+        BorderThickness   = 1
+        FontFamily        = $FontFamily
+        FontSize          = 11
+        VerticalAlignment = 'Center'
+        Padding           = '2'
+    }
+    $SearchDock.Children.Add($SearchInput) | Out-Null
+
+    # State tracking on Border Tag
+    $SearchBarBorder.Tag = @{
+        Matches      = [System.Collections.ArrayList]@()
+        CurrentIndex = -1
+    }
+
+    $SearchInput.Add_TextChanged({
+            param($sender, $e)
+            Invoke-SearchExecution -SearchBox $sender
+        })
+
+    $SearchInput.Add_KeyDown({
+            param($sender, $e)
+            if ($e.Key -eq 'Escape') {
+                Close-SearchBar -ChildElement $sender
+                $e.Handled = $true
+            }
+            elseif ($e.Key -eq 'Enter' -or $e.Key -eq 'Return') {
+                if ([System.Windows.Forms.Control]::ModifierKeys -match 'Shift') {
+                    Step-SearchMatch -ChildElement $sender -Direction 'Prev'
+                }
+                else {
+                    Step-SearchMatch -ChildElement $sender -Direction 'Next'
+                }
+                $e.Handled = $true
+            }
+        })
+
+    $NextBtn.Add_Click({
+            param($sender, $e)
+            Step-SearchMatch -ChildElement $sender -Direction 'Next'
+        })
+
+    $PrevBtn.Add_Click({
+            param($sender, $e)
+            Step-SearchMatch -ChildElement $sender -Direction 'Prev'
+        })
+
+    $CloseBtn.Add_Click({
+            param($sender, $e)
+            Close-SearchBar -ChildElement $sender
+        })
+
+    return $SearchBarBorder
+} # function New-SearchBar
+
 #endregion #3 Content Controls Elements
 
 #region #3 Button Elements
@@ -1710,6 +2400,10 @@ function New-MinMaxButton {
                             $ButtonsContentSlotElement.Visibility = 'Collapsed'
                             $MinMaxButton.Header = $MinMaxButtonMaxedIcon
                             $MinMaxButton.Tooltip = $MinMaxButtonMaxedToolTip
+                            $ChildSearchBar = Find-ObjectWhere -Object ([ref]$ButtonsContentHeaderBorder) -FindWhere { $_.Name -like "*$SearchBarNameSuffix" } -FindMax 1
+                            if ($ChildSearchBar -and $ChildSearchBar.Visibility -eq 'Visible') {
+                                Close-SearchBar -ChildElement $ChildSearchBar
+                            }
                         }
                         $MinMaxButtonMaxedIcon {
                             $ButtonsContentSlotElement.Visibility = 'Visible'
@@ -1726,6 +2420,10 @@ function New-MinMaxButton {
                         $ContentSlotElement.Visibility = 'Collapsed'
                         $sender.Header = $MinMaxButtonMaxedIcon
                         $sender.Tooltip = $MinMaxButtonMaxedToolTip
+                        $SearchBar = Find-ObjectWhere -Object ([ref]$ContentHeaderBorder) -FindWhere { $_.Name -like "*$SearchBarNameSuffix" } -FindMax 1
+                        if ($SearchBar -and $SearchBar.Visibility -eq 'Visible') {
+                            Close-SearchBar -ChildElement $SearchBar
+                        }
                     }
                     $MinMaxButtonMaxedIcon {
                         $ContentSlotElement.Visibility = 'Visible'
@@ -1928,6 +2626,61 @@ function New-DeleteButton {
     return $DeleteButton
 } # function New-DeleteButton
 
+function New-SearchButton {
+    param(
+        [string]$Header = $SearchButtonIcon,
+        $Icon = $null,
+        [string]$ActionFrom = $ContentHeaderBorderName
+    )
+
+    $SearchButton = New-BaseMenuItem @{
+        Name    = "$ActionFrom`_$SearchButtonNameSuffix"
+        Header  = $Header
+        Icon    = $Icon
+        ToolTip = $SearchButtonToolTip
+    }
+
+    $SearchButton.Add_Click({
+            param($sender, $e)
+            $ContentHeaderBorder = Find-ObjectWhere -Object ([ref]$sender) -FindWhere { $_.Name -eq $ContentHeaderBorderName } -DigProperties 'Parent' -FindMax 1
+            if (-not $ContentHeaderBorder) { return }
+
+            $ContentHeaderBorderStack = Find-ObjectWhere -Object ([ref]$ContentHeaderBorder) -FindWhere { $_.Name -eq $ContentHeaderBorderStackName } -FindMax 1
+            if (-not $ContentHeaderBorderStack) { return }
+
+            $SearchBar = $ContentHeaderBorderStack.Children | Where-Object { $_.Name -like "*$SearchBarNameSuffix" }
+            if (-not $SearchBar) {
+                $SearchBar = Find-ObjectWhere -Object ([ref]$ContentHeaderBorder) -FindWhere { $_.Name -like "*$SearchBarNameSuffix" } -FindMax 1
+            }
+            if (-not $SearchBar) { return }
+
+            if ($SearchBar.Visibility -eq 'Visible') {
+                Close-SearchBar -ChildElement $SearchBar
+            }
+            else {
+                $ContentHeaderBorderStack = Find-ObjectWhere -Object ([ref]$ContentHeaderBorder) -FindWhere { $_.Name -eq $ContentHeaderBorderStackName } -FindMax 1
+                $ContentSlot = if ($ContentHeaderBorderStack) { $ContentHeaderBorderStack.Children | Where-Object { $_.Name -eq $ContentSlotElementName } } else { $null }
+                if ($ContentSlot -and $ContentSlot.Visibility -ne 'Visible') {
+                    $ContentSlot.Visibility = 'Visible'
+                    $MinMaxButton = Find-ObjectWhere -Object ([ref]$ContentHeaderBorder) -FindWhere { $_.Name -eq $MinMaxButtonName } -FindMax 1
+                    if ($MinMaxButton) {
+                        $MinMaxButton.Header = $MinMaxButtonMinedIcon
+                        $MinMaxButton.ToolTip = $MinMaxButtonMinedToolTip
+                    }
+                }
+
+                $SearchBar.Visibility = 'Visible'
+                $SearchInput = Find-ObjectWhere -Object ([ref]$SearchBar) -FindWhere { $_.Name -like "*$SearchInputNameSuffix" } -FindMax 1
+                if ($SearchInput) {
+                    $SearchInput.Focus()
+                    $SearchInput.SelectAll()
+                }
+            }
+        })
+
+    return $SearchButton
+} # function New-SearchButton
+
 function New-LockButton {
     param($ActionFrom)
 
@@ -2084,6 +2837,29 @@ Add-BaseStackPanelChild -StackPanel ([ref]$BaseWindow.Content.Content) -Child ([
     )
 )
 
+$BaseWindow.Add_KeyDown({
+        param($sender, $e)
+        if ($e.Key -eq 'F' -and [System.Windows.Input.Keyboard]::Modifiers -match 'Control') {
+            $Focused = [System.Windows.Input.FocusManager]::GetFocusedElement($BaseWindow)
+            $TargetBtn = $null
+            if ($Focused) {
+                $ParentBorder = Find-ObjectWhere -Object ([ref]$Focused) -FindWhere { $_.Name -eq $ContentHeaderBorderName } -DigProperties 'Parent' -FindMax 1
+                if ($ParentBorder) {
+                    $TargetBtn = Find-ObjectWhere -Object ([ref]$ParentBorder) -FindWhere { $_.Name -like "*$SearchButtonNameSuffix" } -FindMax 1
+                }
+            }
+            if (-not $TargetBtn) {
+                $SearchButtons = Find-ObjectWhere -Object ([ref]$BaseWindow) -FindWhere { $_.Name -like "*$SearchButtonNameSuffix" }
+                if ($SearchButtons -and @($SearchButtons).Count -gt 0) {
+                    $TargetBtn = @($SearchButtons)[0]
+                }
+            }
+            if ($TargetBtn) {
+                $TargetBtn.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.MenuItem]::ClickEvent)))
+                $e.Handled = $true
+            }
+        }
+    })
 
 $BaseWindow.ShowDialog() | Out-Null
 
