@@ -3,8 +3,7 @@
         Array Actions
             1 Random Values 
                 9. FUTURE FEATURE: Customize how they generate.
-            Filter - Removes non-matching items
-            Sort
+            Sort - Only for Arrays.
                 By: Property, Value
                 Order: Ascending, Descending
             AsBlock (Delimiter*) - * Default is Comma; NewLine is always an additional delimiter (NewLine explanation in ToolTip)
@@ -112,6 +111,8 @@ $SearchCountNameSuffix = 'SearchCount'
 $SearchPrevButtonNameSuffix = 'SearchPrevButton'
 $SearchNextButtonNameSuffix = 'SearchNextButton'
 $SearchCloseButtonNameSuffix = 'SearchCloseButton'
+$SearchRegexButtonNameSuffix = 'SearchRegexButton'
+$SearchActionsButtonNameSuffix = 'SearchActionsButton'
 
 # UI Element Headers, Icons, & ToolTips
 $MinMaxButtonMaxedIcon = '🔽'
@@ -144,6 +145,10 @@ $DragHandleToolTip = "Drag to reorder`nSHIFT: Swap positions"
 $SearchButtonHeader = 'Search'
 $SearchButtonIcon = '🔍'
 $SearchButtonToolTip = "Search (Ctrl+F)"
+$SearchRegexButtonHeader = '.*'
+$SearchRegexButtonToolTip = "Toggle Regular Expression (Alt+R)"
+$SearchActionsButtonHeader = '⚡ Actions ▾'
+$SearchActionsButtonToolTip = "Actions on Matches"
 
 $SearchOriginalStyles = @{}
 
@@ -639,6 +644,12 @@ function Clear-WrapperContent {
     :Contents foreach ($Content in $Contents) {
         if ((Get-IsLocked ([ref]$Content))) { continue Contents } # TODO: Flash lock
 
+        if ($Content.Uid -and $SearchOriginalStyles.ContainsKey($Content.Uid)) {
+            $Content.BorderBrush = $SearchOriginalStyles[$Content.Uid].BorderBrush
+            $Content.BorderThickness = $SearchOriginalStyles[$Content.Uid].BorderThickness
+            $SearchOriginalStyles.Remove($Content.Uid)
+        }
+
         switch ($Content.GetType().Name) {
             'TextBox' { $Content.Text = $null }
             'ComboBox' { $Content.SelectedItem = $null }
@@ -654,6 +665,28 @@ function Clear-WrapperContent {
             }
         }
     } # Contents
+
+    $DateTimePickers = @()
+    if ($Wrapper.Value.Name -eq $CustomDateTimePickerName) {
+        $DateTimePickers += $Wrapper.Value
+    }
+    $ChildDateTimePickers = Find-ObjectWhere -Object $Wrapper -FindWhere { $_.Name -eq $CustomDateTimePickerName }
+    if ($ChildDateTimePickers) {
+        $DateTimePickers += $ChildDateTimePickers
+    }
+
+    :DateTimePickers foreach ($DTP in $DateTimePickers) {
+        if ((Get-IsLocked ([ref]$DTP))) { continue DateTimePickers }
+        $DateBox = Find-ObjectWhere -Object ([ref]$DTP) -FindWhere { $_.Name -eq $ContentDateTimeDisplayTextBoxName } -FindMax 1
+        if ($DateBox) {
+            if ($DateBox.Uid -and $SearchOriginalStyles.ContainsKey($DateBox.Uid)) {
+                $DateBox.BorderBrush = $SearchOriginalStyles[$DateBox.Uid].BorderBrush
+                $DateBox.BorderThickness = $SearchOriginalStyles[$DateBox.Uid].BorderThickness
+                $SearchOriginalStyles.Remove($DateBox.Uid)
+            }
+            $DateBox.Text = $null
+        }
+    }
 } # function Clear-WrapperContent
 
 function Set-WrapperRandomContent {
@@ -671,6 +704,12 @@ function Set-WrapperRandomContent {
 
     :Contents foreach ($Content in $Contents) {
         if ((Get-IsLocked ([ref]$Content))) { continue Contents }
+
+        if ($Content.Uid -and $SearchOriginalStyles.ContainsKey($Content.Uid)) {
+            $Content.BorderBrush = $SearchOriginalStyles[$Content.Uid].BorderBrush
+            $Content.BorderThickness = $SearchOriginalStyles[$Content.Uid].BorderThickness
+            $SearchOriginalStyles.Remove($Content.Uid)
+        }
 
         switch ($Content.GetType().Name) {
             'TextBox' {
@@ -715,6 +754,11 @@ function Set-WrapperRandomContent {
         if ((Get-IsLocked ([ref]$DTP))) { continue DateTimePickers }
         $DateBox = Find-ObjectWhere -Object ([ref]$DTP) -FindWhere { $_.Name -eq $ContentDateTimeDisplayTextBoxName } -FindMax 1
         if ($DateBox) {
+            if ($DateBox.Uid -and $SearchOriginalStyles.ContainsKey($DateBox.Uid)) {
+                $DateBox.BorderBrush = $SearchOriginalStyles[$DateBox.Uid].BorderBrush
+                $DateBox.BorderThickness = $SearchOriginalStyles[$DateBox.Uid].BorderThickness
+                $SearchOriginalStyles.Remove($DateBox.Uid)
+            }
             $DateBox.Text = (Get-Date).AddDays((Get-Random -Minimum -30 -Maximum 30)).ToString('yyyy-MM-dd HH:mm:ss')
         }
     }
@@ -1332,7 +1376,8 @@ function Set-ElementHighlight {
     param(
         [Parameter(Mandatory)][ref]$Element,
         [ValidateSet('Match', 'Active')][string]$HighlightType = 'Match',
-        [string]$Query = ''
+        [string]$Query = '',
+        [regex]$CompiledRegex = $null
     )
     $Target = if ($Element -is [System.Management.Automation.PSReference]) { $Element.Value } else { $Element }
     if (-not $Target) { return }
@@ -1397,7 +1442,7 @@ function Set-ElementHighlight {
         }
 
         $OrigText = $SearchOriginalStyles[$Target.Uid].OriginalText
-        if (-not [string]::IsNullOrEmpty($Query) -and -not [string]::IsNullOrEmpty($OrigText)) {
+        if ((-not [string]::IsNullOrEmpty($Query) -or $CompiledRegex) -and -not [string]::IsNullOrEmpty($OrigText)) {
             $BgBrush = if ($HighlightType -eq 'Active') { $BrushConverter.ConvertFromString('#E67E22') } else { $BrushConverter.ConvertFromString('#F1C40F') }
             $FgBrush = if ($HighlightType -eq 'Active') { $BrushConverter.ConvertFromString('#FFFFFF') } else { $BrushConverter.ConvertFromString('#1E1E1E') }
 
@@ -1405,28 +1450,53 @@ function Set-ElementHighlight {
             $Paragraph.Margin = [System.Windows.Thickness]::new(0)
 
             $CurrentIdx = 0
-            $QueryLen = $Query.Length
-            while ($CurrentIdx -lt $OrigText.Length) {
-                $MatchIdx = $OrigText.IndexOf($Query, $CurrentIdx, [System.StringComparison]::CurrentCultureIgnoreCase)
-                if ($MatchIdx -eq -1) {
+            if ($CompiledRegex) {
+                $RMatches = $CompiledRegex.Matches($OrigText)
+                foreach ($RMatch in $RMatches) {
+                    if ($RMatch.Length -eq 0) { continue }
+                    if ($RMatch.Index -ge $CurrentIdx) {
+                        if ($RMatch.Index -gt $CurrentIdx) {
+                            $Before = $OrigText.Substring($CurrentIdx, $RMatch.Index - $CurrentIdx)
+                            $Paragraph.Inlines.Add((New-Object System.Windows.Documents.Run($Before))) | Out-Null
+                        }
+                        $MatchedText = $RMatch.Value
+                        $MatchedRun = New-Object System.Windows.Documents.Run($MatchedText)
+                        $MatchedRun.Background = $BgBrush
+                        $MatchedRun.Foreground = $FgBrush
+                        $MatchedRun.FontWeight = [System.Windows.FontWeights]::Bold
+                        $Paragraph.Inlines.Add($MatchedRun) | Out-Null
+                        $CurrentIdx = $RMatch.Index + $RMatch.Length
+                    }
+                }
+                if ($CurrentIdx -lt $OrigText.Length) {
                     $Remaining = $OrigText.Substring($CurrentIdx)
                     $Paragraph.Inlines.Add((New-Object System.Windows.Documents.Run($Remaining))) | Out-Null
-                    break
                 }
+            }
+            else {
+                $QueryLen = $Query.Length
+                while ($CurrentIdx -lt $OrigText.Length) {
+                    $MatchIdx = $OrigText.IndexOf($Query, $CurrentIdx, [System.StringComparison]::CurrentCultureIgnoreCase)
+                    if ($MatchIdx -eq -1) {
+                        $Remaining = $OrigText.Substring($CurrentIdx)
+                        $Paragraph.Inlines.Add((New-Object System.Windows.Documents.Run($Remaining))) | Out-Null
+                        break
+                    }
 
-                if ($MatchIdx -gt $CurrentIdx) {
-                    $Before = $OrigText.Substring($CurrentIdx, $MatchIdx - $CurrentIdx)
-                    $Paragraph.Inlines.Add((New-Object System.Windows.Documents.Run($Before))) | Out-Null
+                    if ($MatchIdx -gt $CurrentIdx) {
+                        $Before = $OrigText.Substring($CurrentIdx, $MatchIdx - $CurrentIdx)
+                        $Paragraph.Inlines.Add((New-Object System.Windows.Documents.Run($Before))) | Out-Null
+                    }
+
+                    $MatchedText = $OrigText.Substring($MatchIdx, $QueryLen)
+                    $MatchedRun = New-Object System.Windows.Documents.Run($MatchedText)
+                    $MatchedRun.Background = $BgBrush
+                    $MatchedRun.Foreground = $FgBrush
+                    $MatchedRun.FontWeight = [System.Windows.FontWeights]::Bold
+                    $Paragraph.Inlines.Add($MatchedRun) | Out-Null
+
+                    $CurrentIdx = $MatchIdx + $QueryLen
                 }
-
-                $MatchedText = $OrigText.Substring($MatchIdx, $QueryLen)
-                $MatchedRun = New-Object System.Windows.Documents.Run($MatchedText)
-                $MatchedRun.Background = $BgBrush
-                $MatchedRun.Foreground = $FgBrush
-                $MatchedRun.FontWeight = [System.Windows.FontWeights]::Bold
-                $Paragraph.Inlines.Add($MatchedRun) | Out-Null
-
-                $CurrentIdx = $MatchIdx + $QueryLen
             }
 
             $Target.Document.Blocks.Clear()
@@ -1511,34 +1581,46 @@ function Reset-ElementHighlight {
 function Test-ElementMatchesQuery {
     param(
         [Parameter(Mandatory)]$Element,
-        [Parameter(Mandatory)][string]$Query
+        [Parameter(Mandatory)][string]$Query,
+        [regex]$CompiledRegex = $null
     )
-    if ([string]::IsNullOrWhiteSpace($Query)) { return $false }
+    if ([string]::IsNullOrWhiteSpace($Query) -and $null -eq $CompiledRegex) { return $false }
+
+    $TestString = {
+        param($Text)
+        if ([string]::IsNullOrEmpty($Text)) { return $false }
+        if ($CompiledRegex) {
+            return $CompiledRegex.IsMatch($Text)
+        }
+        else {
+            return ($Text.IndexOf($Query, [System.StringComparison]::CurrentCultureIgnoreCase) -ge 0)
+        }
+    }
 
     $MatchedParts = [System.Collections.ArrayList]@()
 
     # 1. Match titles / property names inside element
     if ($Element.Name -eq $ContentHeaderTitleValueName) {
-        if ($Element.Text -and $Element.Text.IndexOf($Query, [System.StringComparison]::CurrentCultureIgnoreCase) -ge 0) {
+        if (& $TestString $Element.Text) {
             [void]$MatchedParts.Add($Element)
         }
     }
     $TitleBlocks = Find-ObjectWhere -Object ([ref]$Element) -FindWhere { $_.Name -eq $ContentHeaderTitleValueName }
     :Titles foreach ($TBlock in $TitleBlocks) {
-        if ($TBlock.Text -and $TBlock.Text.IndexOf($Query, [System.StringComparison]::CurrentCultureIgnoreCase) -ge 0) {
+        if (& $TestString $TBlock.Text) {
             [void]$MatchedParts.Add($TBlock)
         }
     }
 
     # 2. Match descriptions inside element
     if ($Element.Name -eq $ContentHeaderDescriptionValueName) {
-        if ($Element.Text -and $Element.Text.IndexOf($Query, [System.StringComparison]::CurrentCultureIgnoreCase) -ge 0) {
+        if (& $TestString $Element.Text) {
             [void]$MatchedParts.Add($Element)
         }
     }
     $DescBlocks = Find-ObjectWhere -Object ([ref]$Element) -FindWhere { $_.Name -eq $ContentHeaderDescriptionValueName }
     :Descs foreach ($DBlock in $DescBlocks) {
-        if ($DBlock.Text -and $DBlock.Text.IndexOf($Query, [System.StringComparison]::CurrentCultureIgnoreCase) -ge 0) {
+        if (& $TestString $DBlock.Text) {
             [void]$MatchedParts.Add($DBlock)
         }
     }
@@ -1556,13 +1638,13 @@ function Test-ElementMatchesQuery {
         $Val = Get-ContentValue $Content
         if ($null -ne $Val) {
             $StrVal = "$Val"
-            if ($StrVal.IndexOf($Query, [System.StringComparison]::CurrentCultureIgnoreCase) -ge 0) {
+            if (& $TestString $StrVal) {
                 [void]$MatchedParts.Add($Content)
             }
         }
         if ($Content -is [System.Windows.Controls.ComboBox] -and $Content.ItemsSource) {
             foreach ($Item in $Content.ItemsSource) {
-                if ($Item -and "$Item".IndexOf($Query, [System.StringComparison]::CurrentCultureIgnoreCase) -ge 0) {
+                if ($Item -and (& $TestString "$Item")) {
                     if (-not $MatchedParts.Contains($Content)) {
                         [void]$MatchedParts.Add($Content)
                     }
@@ -1576,7 +1658,7 @@ function Test-ElementMatchesQuery {
     $DateTimePickers = Find-ObjectWhere -Object ([ref]$Element) -FindWhere { $_.Name -eq $CustomDateTimePickerName }
     :DTPs foreach ($DTP in $DateTimePickers) {
         $DateBox = Find-ObjectWhere -Object ([ref]$DTP) -FindWhere { $_.Name -eq $ContentDateTimeDisplayTextBoxName } -FindMax 1
-        if ($DateBox -and $DateBox.Text -and $DateBox.Text.IndexOf($Query, [System.StringComparison]::CurrentCultureIgnoreCase) -ge 0) {
+        if ($DateBox -and (& $TestString $DateBox.Text)) {
             [void]$MatchedParts.Add($DateBox)
         }
     }
@@ -1584,8 +1666,16 @@ function Test-ElementMatchesQuery {
     # 5. Match Index boxes inside element
     $IndexBoxes = Find-ObjectWhere -Object ([ref]$Element) -FindWhere { $_.Name -like "*$IndexBoxNameSuffix" }
     :Indices foreach ($IBox in $IndexBoxes) {
-        if ($IBox.Text -and $IBox.Text.Trim() -eq $Query.Trim()) {
-            [void]$MatchedParts.Add($IBox)
+        if ($IBox.Text) {
+            $IVal = $IBox.Text.Trim()
+            if ($CompiledRegex) {
+                if ($CompiledRegex.IsMatch($IVal)) {
+                    [void]$MatchedParts.Add($IBox)
+                }
+            }
+            elseif ($IVal -eq $Query.Trim()) {
+                [void]$MatchedParts.Add($IBox)
+            }
         }
     }
 
@@ -1636,11 +1726,206 @@ function Clear-SearchHighlights {
         }
         $SearchBar.Value.Tag.CurrentIndex = -1
         $SearchBar.Value.Tag.Query = ''
+        $SearchBar.Value.Tag.CompiledRegex = $null
     }
 
     $CountBlock = Find-ObjectWhere -Object $SearchBar -FindWhere { $_.Name -like "*$SearchCountNameSuffix" } -FindMax 1
     if ($CountBlock) { $CountBlock.Text = '' }
 } # function Clear-SearchHighlights
+
+function Get-MatchedSlotItems {
+    param(
+        [Parameter(Mandatory)]$ChildElement
+    )
+    $Target = if ($ChildElement -is [System.Management.Automation.PSReference]) { $ChildElement.Value } else { $ChildElement }
+    $SearchBar = if ($Target.Name -like "*$SearchBarNameSuffix") { $Target } else {
+        Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $_.Name -like "*$SearchBarNameSuffix" } -DigProperties 'Parent' -FindMax 1
+    }
+    if (-not $SearchBar) { return $null }
+
+    $ContentHeaderBorder = Find-ObjectWhere -Object ([ref]$SearchBar) -FindWhere { $_.Name -eq $ContentHeaderBorderName } -DigProperties 'Parent' -FindMax 1
+    if (-not $ContentHeaderBorder) { return $null }
+
+    $ContentHeaderBorderStack = Find-ObjectWhere -Object ([ref]$ContentHeaderBorder) -FindWhere { $_.Name -eq $ContentHeaderBorderStackName } -FindMax 1
+    if (-not $ContentHeaderBorderStack) { return $null }
+
+    $ContentSlot = $ContentHeaderBorderStack.Children | Where-Object { $_.Name -eq $ContentSlotElementName }
+    if (-not $ContentSlot -or $ContentSlot.Children.Count -eq 0) { return $null }
+
+    $MatchedElements = if ($SearchBar.Tag -and $SearchBar.Tag.Matches) { $SearchBar.Tag.Matches } else { @() }
+
+    $MatchedItems = [System.Collections.ArrayList]@()
+    $NonMatchedItems = [System.Collections.ArrayList]@()
+
+    foreach ($ChildItem in @($ContentSlot.Children)) {
+        $HasMatch = $false
+        foreach ($MatchEl in $MatchedElements) {
+            $Curr = $MatchEl
+            while ($Curr -and $Curr -ne $ContentSlot) {
+                if ($Curr -eq $ChildItem) {
+                    $HasMatch = $true
+                    break
+                }
+                $Curr = $Curr.Parent
+            }
+            if ($HasMatch) { break }
+        }
+
+        if ($HasMatch) {
+            [void]$MatchedItems.Add($ChildItem)
+        }
+        else {
+            [void]$NonMatchedItems.Add($ChildItem)
+        }
+    }
+
+    return @{
+        SearchBar   = $SearchBar
+        ContentSlot = $ContentSlot
+        Matched     = $MatchedItems
+        NonMatched  = $NonMatchedItems
+    }
+} # function Get-MatchedSlotItems
+
+function Invoke-SearchFilterAction {
+    param(
+        [Parameter(Mandatory)]$ChildElement,
+        [ValidateSet('ShowOnly', 'Hide', 'ShowAll')][string]$Action = 'ShowOnly'
+    )
+    $SlotInfo = Get-MatchedSlotItems -ChildElement $ChildElement
+    if (-not $SlotInfo) { return }
+
+    $SearchBar = $SlotInfo.SearchBar
+    $CountBlock = Find-ObjectWhere -Object ([ref]$SearchBar) -FindWhere { $_.Name -like "*$SearchCountNameSuffix" } -FindMax 1
+
+    switch ($Action) {
+        'ShowOnly' {
+            foreach ($Item in $SlotInfo.NonMatched) { $Item.Visibility = 'Collapsed' }
+            foreach ($Item in $SlotInfo.Matched) { $Item.Visibility = 'Visible' }
+            $Total = $SlotInfo.ContentSlot.Children.Count
+            $VisibleCount = $SlotInfo.Matched.Count
+            if ($CountBlock) {
+                $CountBlock.Text = "Filtered: $VisibleCount / $Total"
+                $CountBlock.Foreground = '#F1C40F'
+            }
+        }
+        'Hide' {
+            foreach ($Item in $SlotInfo.Matched) { $Item.Visibility = 'Collapsed' }
+            foreach ($Item in $SlotInfo.NonMatched) { $Item.Visibility = 'Visible' }
+            $Total = $SlotInfo.ContentSlot.Children.Count
+            $VisibleCount = $SlotInfo.NonMatched.Count
+            if ($CountBlock) {
+                $CountBlock.Text = "Filtered: $VisibleCount / $Total"
+                $CountBlock.Foreground = '#F1C40F'
+            }
+        }
+        'ShowAll' {
+            foreach ($Item in $SlotInfo.ContentSlot.Children) { $Item.Visibility = 'Visible' }
+            if ($CountBlock -and $SearchBar.Tag -and $SearchBar.Tag.Matches) {
+                $MatchCount = $SearchBar.Tag.Matches.Count
+                $CurrIdx = $SearchBar.Tag.CurrentIndex
+                if ($MatchCount -gt 0) {
+                    $CountBlock.Text = "$($CurrIdx + 1) / $MatchCount"
+                    $CountBlock.Foreground = '#C1B8D1'
+                }
+                else {
+                    $CountBlock.Text = ''
+                }
+            }
+        }
+    }
+} # function Invoke-SearchFilterAction
+
+function Invoke-SearchBatchAction {
+    param(
+        [Parameter(Mandatory)]$ChildElement,
+        [ValidateSet('Random', 'Clear', 'Disable', 'Delete', 'Lock', 'Unlock')][string]$Action = 'Random'
+    )
+    $SlotInfo = Get-MatchedSlotItems -ChildElement $ChildElement
+    if (-not $SlotInfo -or $SlotInfo.Matched.Count -eq 0) { return }
+
+    $SearchBar = $SlotInfo.SearchBar
+    $SearchInput = Find-ObjectWhere -Object ([ref]$SearchBar) -FindWhere { $_.Name -like "*$SearchInputNameSuffix" } -FindMax 1
+
+    switch ($Action) {
+        'Lock' {
+            foreach ($Item in $SlotInfo.Matched) {
+                $LockBtn = Find-ObjectWhere -Object ([ref]$Item) -FindWhere { $_.Name -eq $LockUnlockButtonName } -FindMax 1
+                if ($LockBtn -and $LockBtn.Header -ne $LockUnlockButtonHeaderLocked) {
+                    $LockBtn.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.MenuItem]::ClickEvent)))
+                }
+            }
+        }
+        'Unlock' {
+            foreach ($Item in $SlotInfo.Matched) {
+                $LockBtns = Find-ObjectWhere -Object ([ref]$Item) -FindWhere { $_.Name -eq $LockUnlockButtonName }
+                foreach ($LBtn in $LockBtns) {
+                    if ($LBtn.Header -eq $LockUnlockButtonHeaderLocked) {
+                        $LBtn.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.MenuItem]::ClickEvent)))
+                    }
+                }
+            }
+        }
+        'Random' {
+            foreach ($Item in $SlotInfo.Matched) {
+                # Discard search original styles so it doesn't revert to old text
+                $Contents = @()
+                if ($Item.Name -eq $ContentElementName) { $Contents += $Item }
+                $ChildContents = Find-ObjectWhere -Object ([ref]$Item) -FindWhere { $_.Name -eq $ContentElementName }
+                if ($ChildContents) { $Contents += $ChildContents }
+                foreach ($C in $Contents) {
+                    if ($C.Uid -and $SearchOriginalStyles.ContainsKey($C.Uid)) {
+                        $C.BorderBrush = $SearchOriginalStyles[$C.Uid].BorderBrush
+                        $C.BorderThickness = $SearchOriginalStyles[$C.Uid].BorderThickness
+                        $SearchOriginalStyles.Remove($C.Uid)
+                    }
+                }
+                Set-WrapperRandomContent -Wrapper ([ref]$Item)
+            }
+        }
+        'Clear' {
+            foreach ($Item in $SlotInfo.Matched) {
+                # Discard search original styles so it doesn't revert to old text
+                $Contents = @()
+                if ($Item.Name -eq $ContentElementName) { $Contents += $Item }
+                $ChildContents = Find-ObjectWhere -Object ([ref]$Item) -FindWhere { $_.Name -eq $ContentElementName }
+                if ($ChildContents) { $Contents += $ChildContents }
+                foreach ($C in $Contents) {
+                    if ($C.Uid -and $SearchOriginalStyles.ContainsKey($C.Uid)) {
+                        $C.BorderBrush = $SearchOriginalStyles[$C.Uid].BorderBrush
+                        $C.BorderThickness = $SearchOriginalStyles[$C.Uid].BorderThickness
+                        $SearchOriginalStyles.Remove($C.Uid)
+                    }
+                }
+                Clear-WrapperContent -Wrapper ([ref]$Item)
+            }
+        }
+        'Disable' {
+            foreach ($Item in $SlotInfo.Matched) {
+                if (Get-IsLocked $Item) { continue }
+                $DisableBtn = Find-ObjectWhere -Object ([ref]$Item) -FindWhere { $_.Name -like "*$DisableEnableButtonNameSuffix" } -FindMax 1
+                if ($DisableBtn -and $DisableBtn.Icon -ne $DisableEnableButtonIconDisabled) {
+                    $DisableBtn.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.MenuItem]::ClickEvent)))
+                }
+            }
+        }
+        'Delete' {
+            foreach ($Item in @($SlotInfo.Matched)) {
+                if (Get-IsLocked $Item) { continue }
+                $DelBtn = Find-ObjectWhere -Object ([ref]$Item) -FindWhere { $_.Name -like "*$DeleteButtonNameSuffix" } -FindMax 1
+                if ($DelBtn) {
+                    $SlotInfo.ContentSlot.Children.Remove($Item)
+                }
+            }
+            Reset-ArrayIndexes ([ref]$SlotInfo.ContentSlot)
+            Confirm-ArrayEnableButton -Item ([ref]$SlotInfo.ContentSlot)
+        }
+    }
+
+    if ($SearchInput) {
+        Invoke-SearchExecution -SearchBox $SearchInput
+    }
+} # function Invoke-SearchBatchAction
 
 function Close-SearchBar {
     param([Parameter(Mandatory)]$ChildElement)
@@ -1649,6 +1934,19 @@ function Close-SearchBar {
         Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $_.Name -like "*$SearchBarNameSuffix" } -DigProperties 'Parent' -FindMax 1
     }
     if (-not $SearchBar) { return }
+
+    $ActionsBtn = Find-ObjectWhere -Object ([ref]$SearchBar) -FindWhere { $_.Name -like "*$SearchActionsButtonNameSuffix" } -FindMax 1
+    if ($ActionsBtn -and $ActionsBtn.Tag) {
+        $ActionsBtn.Tag.IsOpen = $false
+    }
+
+    # Restore visibility on any filtered items
+    $SlotInfo = Get-MatchedSlotItems -ChildElement $SearchBar
+    if ($SlotInfo -and $SlotInfo.ContentSlot) {
+        foreach ($Child in $SlotInfo.ContentSlot.Children) {
+            $Child.Visibility = 'Visible'
+        }
+    }
 
     Clear-SearchHighlights -SearchBar ([ref]$SearchBar)
     $SearchBar.Visibility = 'Collapsed'
@@ -1679,9 +1977,29 @@ function Invoke-SearchExecution {
         return
     }
 
+    $UseRegex = if ($SearchBar.Tag -and $SearchBar.Tag.ContainsKey('UseRegex')) { [bool]$SearchBar.Tag.UseRegex } else { $true }
+    $CompiledRegex = $null
+
+    try {
+        $RegexOptions = [System.Text.RegularExpressions.RegexOptions]::IgnoreCase
+        if ($UseRegex) {
+            $CompiledRegex = [regex]::new($Query, $RegexOptions)
+        }
+        else {
+            $CompiledRegex = [regex]::new([regex]::Escape($Query), $RegexOptions)
+        }
+    }
+    catch {
+        if ($CountBlock) {
+            $CountBlock.Text = 'Invalid regex'
+            $CountBlock.Foreground = '#FF7675'
+        }
+        return
+    }
+
     $MatchedElements = [System.Collections.ArrayList]@()
     :Children foreach ($Child in @($ContentSlot.Children)) {
-        $Matches = Test-ElementMatchesQuery -Element $Child -Query $Query
+        $Matches = Test-ElementMatchesQuery -Element $Child -Query $Query -CompiledRegex $CompiledRegex
         if ($Matches) {
             :Matches foreach ($MatchItem in $Matches) {
                 if (-not $MatchedElements.Contains($MatchItem)) {
@@ -1700,13 +2018,14 @@ function Invoke-SearchExecution {
     }
 
     $SearchBar.Tag.Query = $Query
+    $SearchBar.Tag.CompiledRegex = $CompiledRegex
     :Matches foreach ($Match in $MatchedElements) {
-        Set-ElementHighlight -Element ([ref]$Match) -HighlightType 'Match' -Query $Query
+        Set-ElementHighlight -Element ([ref]$Match) -HighlightType 'Match' -Query $Query -CompiledRegex $CompiledRegex
     }
 
     $SearchBar.Tag.Matches = $MatchedElements
     $SearchBar.Tag.CurrentIndex = 0
-    Set-ElementHighlight -Element ([ref]$MatchedElements[0]) -HighlightType 'Active' -Query $Query
+    Set-ElementHighlight -Element ([ref]$MatchedElements[0]) -HighlightType 'Active' -Query $Query -CompiledRegex $CompiledRegex
     $MatchedElements[0].BringIntoView()
 
     if ($CountBlock) {
@@ -1736,9 +2055,10 @@ function Step-SearchMatch {
     $Matches = $SearchBar.Tag.Matches
     $CurrentIdx = $SearchBar.Tag.CurrentIndex
     $Query = if ($SearchBar.Tag -and $SearchBar.Tag.Query) { $SearchBar.Tag.Query } else { '' }
+    $CompiledRegex = if ($SearchBar.Tag -and $SearchBar.Tag.ContainsKey('CompiledRegex')) { $SearchBar.Tag.CompiledRegex } else { $null }
 
     if ($CurrentIdx -ge 0 -and $CurrentIdx -lt $Matches.Count) {
-        Set-ElementHighlight -Element ([ref]$Matches[$CurrentIdx]) -HighlightType 'Match' -Query $Query
+        Set-ElementHighlight -Element ([ref]$Matches[$CurrentIdx]) -HighlightType 'Match' -Query $Query -CompiledRegex $CompiledRegex
     }
 
     if ($Direction -eq 'Next') {
@@ -1749,7 +2069,7 @@ function Step-SearchMatch {
     }
 
     $SearchBar.Tag.CurrentIndex = $NewIdx
-    Set-ElementHighlight -Element ([ref]$Matches[$NewIdx]) -HighlightType 'Active' -Query $Query
+    Set-ElementHighlight -Element ([ref]$Matches[$NewIdx]) -HighlightType 'Active' -Query $Query -CompiledRegex $CompiledRegex
     $Matches[$NewIdx].BringIntoView()
 
     $CountBlock = Find-ObjectWhere -Object ([ref]$SearchBar) -FindWhere { $_.Name -like "*$SearchCountNameSuffix" } -FindMax 1
@@ -2246,6 +2566,121 @@ function New-SearchBar {
     [System.Windows.Controls.DockPanel]::SetDock($CloseBtn, 'Right')
     $SearchDock.Children.Add($CloseBtn) | Out-Null
 
+    # Actions Menu Button & Dark-Themed Dropdown Popup (Dock Right)
+    $ActionsBtn = New-BaseButton @{
+        Content           = $SearchActionsButtonHeader
+        Name              = "$WrapperName`_$SearchActionsButtonNameSuffix"
+        ToolTip           = $SearchActionsButtonToolTip
+        Foreground        = '#EDEAFA'
+        Background        = '#504368'
+        BorderBrush       = '#8879A1'
+        BorderThickness   = 1
+        Padding           = '4,1,4,1'
+        Margin            = '2,0,2,0'
+        FontSize          = 10
+        FontFamily        = $FontFamily
+        Cursor            = 'Hand'
+        VerticalAlignment = 'Center'
+        Focusable         = $false
+    }
+    [System.Windows.Controls.DockPanel]::SetDock($ActionsBtn, 'Right')
+    $SearchDock.Children.Add($ActionsBtn) | Out-Null
+
+    $ActionsPopup = New-Object System.Windows.Controls.Primitives.Popup
+    $ActionsPopup.PlacementTarget = $ActionsBtn
+    $ActionsPopup.Placement = [System.Windows.Controls.Primitives.PlacementMode]::Bottom
+    $ActionsPopup.StaysOpen = $false
+    $ActionsPopup.AllowsTransparency = $true
+    $ActionsBtn.Tag = $ActionsPopup
+
+    $PopupBorder = New-BaseBorder @{
+        Background      = '#251F33'
+        BorderBrush     = '#7A6E94'
+        BorderThickness = 1
+        CornerRadius    = 4
+        Padding         = 2
+    }
+    $ActionsPopup.Child = $PopupBorder
+
+    $PopupStack = New-BaseStackPanel @{
+        Orientation = 'Vertical'
+    }
+    $PopupBorder.Child = $PopupStack
+
+    $MenuItems = @(
+        @{ Header = '👁️  Show Matches'; ToolTip = 'Show matching items'; Action = 'ShowOnly'; Type = 'Filter' },
+        @{ Header = '🙈  Hide Matches'; ToolTip = 'Hide matching items'; Action = 'Hide'; Type = 'Filter' },
+        @{ Header = '🔄  Show All'; ToolTip = 'Restore all items'; Action = 'ShowAll'; Type = 'Filter' },
+        @{ Separator = $true },
+        @{ Header = '🔒  Lock Matches'; ToolTip = 'Lock matching items'; Action = 'Lock'; Type = 'Batch' },
+        @{ Header = '🔓  Unlock Matches'; ToolTip = 'Unlock matching items'; Action = 'Unlock'; Type = 'Batch' },
+        @{ Header = '🎲  Randomize Matches'; ToolTip = 'Randomize matching items'; Action = 'Random'; Type = 'Batch' },
+        @{ Header = '🧹  Clear Matches'; ToolTip = 'Clear matching items'; Action = 'Clear'; Type = 'Batch' },
+        @{ Header = '❌  Disable Matches'; ToolTip = 'Disable matching array items'; Action = 'Disable'; Type = 'Batch' },
+        @{ Header = '🗑️  Delete Matches'; ToolTip = 'Delete matching array items'; Action = 'Delete'; Type = 'Batch' }
+    )
+
+    foreach ($Item in $MenuItems) {
+        if ($Item.ContainsKey('Separator') -and $Item.Separator) {
+            $Sep = New-BaseBorder @{
+                Height     = 1
+                Background = '#4C435E'
+                Margin     = '2,3,2,3'
+            }
+            $PopupStack.Children.Add($Sep) | Out-Null
+            continue
+        }
+
+        $ItemBtn = New-BaseButton @{
+            Content                    = $Item.Header
+            ToolTip                    = $Item.ToolTip
+            Foreground                 = '#EDEAFA'
+            Background                 = 'Transparent'
+            BorderThickness            = 0
+            HorizontalContentAlignment = 'Left'
+            Padding                    = '10,5,10,5'
+            FontFamily                 = $FontFamily
+            FontSize                   = 11
+            Cursor                     = 'Hand'
+        }
+
+        $ItemBtn.Add_MouseEnter({
+                param($s, $e)
+                $s.Background = '#504368'
+                $s.Foreground = '#FFFFFF'
+            })
+        $ItemBtn.Add_MouseLeave({
+                param($s, $e)
+                $s.Background = 'Transparent'
+                $s.Foreground = '#EDEAFA'
+            })
+
+        $ActionName = $Item.Action
+        $ActionType = $Item.Type
+        $TargetBtn = $ActionsBtn
+        $ItemBtn.Add_Click({
+                param($s, $e)
+                if ($TargetBtn.Tag) {
+                    $TargetBtn.Tag.IsOpen = $false
+                }
+                if ($ActionType -eq 'Filter') {
+                    Invoke-SearchFilterAction -ChildElement $TargetBtn -Action $ActionName
+                }
+                else {
+                    Invoke-SearchBatchAction -ChildElement $TargetBtn -Action $ActionName
+                }
+            }.GetNewClosure())
+
+        $PopupStack.Children.Add($ItemBtn) | Out-Null
+    }
+
+    $ActionsBtn.Add_Click({
+            param($sender, $e)
+            if ($sender.Tag) {
+                $sender.Tag.IsOpen = -not $sender.Tag.IsOpen
+            }
+        })
+
     # Next button (Dock Right)
     $NextBtn = New-BaseButton @{
         Content           = '▼'
@@ -2283,6 +2718,28 @@ function New-SearchBar {
     }
     [System.Windows.Controls.DockPanel]::SetDock($PrevBtn, 'Right')
     $SearchDock.Children.Add($PrevBtn) | Out-Null
+
+    # Regex toggle button (Dock Right)
+    $RegexBtn = New-BaseButton @{
+        Content           = $SearchRegexButtonHeader
+        Name              = "$WrapperName`_$SearchRegexButtonNameSuffix"
+        Width             = 24
+        Height            = 20
+        Margin            = '2,0,2,0'
+        Padding           = '0'
+        Background        = '#504368'
+        Foreground        = '#EDEAFA'
+        BorderBrush       = '#8879A1'
+        BorderThickness   = 1
+        Cursor            = 'Hand'
+        ToolTip           = "Regex Mode: ON (Alt+R to toggle)"
+        VerticalAlignment = 'Center'
+        Focusable         = $false
+        FontWeight        = 'Bold'
+        FontSize          = 11
+    }
+    [System.Windows.Controls.DockPanel]::SetDock($RegexBtn, 'Right')
+    $SearchDock.Children.Add($RegexBtn) | Out-Null
 
     # Match Counter (Dock Right)
     $MatchCount = New-BaseTextBlock @{
@@ -2324,8 +2781,11 @@ function New-SearchBar {
 
     # State tracking on Border Tag
     $SearchBarBorder.Tag = @{
-        Matches      = [System.Collections.ArrayList]@()
-        CurrentIndex = -1
+        Matches       = [System.Collections.ArrayList]@()
+        CurrentIndex  = -1
+        UseRegex      = $true
+        CompiledRegex = $null
+        Query         = ''
     }
 
     $SearchInput.Add_TextChanged({
@@ -2340,13 +2800,60 @@ function New-SearchBar {
                 $e.Handled = $true
             }
             elseif ($e.Key -eq 'Enter' -or $e.Key -eq 'Return') {
-                if ([System.Windows.Forms.Control]::ModifierKeys -match 'Shift') {
-                    Step-SearchMatch -ChildElement $sender -Direction 'Prev'
+                $SearchBar = Find-ObjectWhere -Object ([ref]$sender) -FindWhere { $_.Name -like "*$SearchBarNameSuffix" } -DigProperties 'Parent' -FindMax 1
+                if (-not $SearchBar) { $SearchBar = $SearchBarBorder }
+                $IsShift = ([System.Windows.Forms.Control]::ModifierKeys -match 'Shift') -or ([System.Windows.Input.Keyboard]::Modifiers -match 'Shift')
+                $HasMatches = $SearchBar -and $SearchBar.Tag -and $SearchBar.Tag.Matches -and ($SearchBar.Tag.Matches.Count -gt 0)
+                $HasSearchedCurrent = $HasMatches -and ($SearchBar.Tag.Query -eq $sender.Text) -and ($SearchBar.Tag.CurrentIndex -ge 0)
+
+                if (-not $HasSearchedCurrent) {
+                    Invoke-SearchExecution -SearchBox $sender
+                    if ($IsShift) {
+                        Step-SearchMatch -ChildElement $sender -Direction 'Prev'
+                    }
                 }
                 else {
-                    Step-SearchMatch -ChildElement $sender -Direction 'Next'
+                    if ($IsShift) {
+                        Step-SearchMatch -ChildElement $sender -Direction 'Prev'
+                    }
+                    else {
+                        Step-SearchMatch -ChildElement $sender -Direction 'Next'
+                    }
                 }
                 $e.Handled = $true
+            }
+            elseif ($e.Key -eq 'R' -and ([System.Windows.Forms.Control]::ModifierKeys -match 'Alt' -or [System.Windows.Input.Keyboard]::Modifiers -match 'Alt')) {
+                $RBtn = Find-ObjectWhere -Object ([ref]$sender) -FindWhere { $_.Name -like "*$SearchRegexButtonNameSuffix" } -DigProperties 'Parent' -FindMax 1
+                if ($RBtn) {
+                    $RBtn.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.Button]::ClickEvent)))
+                    $e.Handled = $true
+                }
+            }
+        })
+
+    $RegexBtn.Add_Click({
+            param($sender, $e)
+            $SearchBarBorder = Find-ObjectWhere -Object ([ref]$sender) -FindWhere { $_.Name -like "*$SearchBarNameSuffix" } -DigProperties 'Parent' -FindMax 1
+            if (-not $SearchBarBorder) { return }
+
+            $CurrentUseRegex = if ($SearchBarBorder.Tag.ContainsKey('UseRegex')) { $SearchBarBorder.Tag.UseRegex } else { $true }
+            $NewUseRegex = -not $CurrentUseRegex
+            $SearchBarBorder.Tag.UseRegex = $NewUseRegex
+
+            if ($NewUseRegex) {
+                $sender.Background = '#504368'
+                $sender.BorderBrush = '#8879A1'
+                $sender.ToolTip = "Regex Mode: ON (Alt+R to toggle)"
+            }
+            else {
+                $sender.Background = 'Transparent'
+                $sender.BorderBrush = 'Transparent'
+                $sender.ToolTip = "Regex Mode: OFF (Literal String - Alt+R to toggle)"
+            }
+
+            $SearchInput = Find-ObjectWhere -Object ([ref]$SearchBarBorder) -FindWhere { $_.Name -like "*$SearchInputNameSuffix" } -FindMax 1
+            if ($SearchInput) {
+                Invoke-SearchExecution -SearchBox $SearchInput
             }
         })
 
