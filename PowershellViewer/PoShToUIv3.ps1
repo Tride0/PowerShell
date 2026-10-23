@@ -1,4 +1,10 @@
 <# PoshToUI
+    Project:
+        - Dynamic PowerShell Object Viewer
+        - UI is created using PowerShell
+        - No hardcoded UI
+        - No Abbrevations
+
     To Do:
         Array Actions
             1 Random Values 
@@ -63,6 +69,8 @@ $ColorSequence = @(
     '#C1B8D1'
     '#EDEAFA'
 )
+[double]$SubMenuOverlapOffset = 0
+
 
 # UI Element Names
 $WindowName = 'Window'
@@ -115,6 +123,17 @@ $SearchCloseButtonNameSuffix = 'SearchCloseButton'
 $SearchRegexButtonNameSuffix = 'SearchRegexButton'
 $SearchActionsButtonNameSuffix = 'SearchActionsButton'
 
+$QuickSetMenuNameSuffix = 'QuickSetMenu'
+$QuickSetBadgeNameSuffix = 'QuickSetBadge'
+$QuickSetSetMenuNameSuffix = 'QuickSet_Set'
+$QuickSetRefreshButtonNameSuffix = 'QuickSet_Refresh'
+$QuickSetSaveButtonNameSuffix = 'QuickSet_Save'
+$QuickSetRenameButtonNameSuffix = 'QuickSet_Rename'
+$QuickSetOverwriteButtonNameSuffix = 'QuickSet_Overwrite'
+$QuickSetClearButtonNameSuffix = 'QuickSet_Clear'
+$QuickSetCloseButtonNameSuffix = 'QuickSet_Close'
+$QuickSetDeleteButtonNameSuffix = 'QuickSet_Delete'
+
 # UI Element Headers, Icons, & ToolTips
 $MinMaxButtonMaxedIcon = '🔽'
 $MinMaxButtonMaxedToolTip = "Minimize`nSHIFT: Alternate Behavior"
@@ -122,23 +141,41 @@ $MinMaxButtonMinedIcon = '🔼'
 $MinMaxButtonMinedToolTip = "Maximize`nSHIFT: Alternate Behavior"
 
 $AddArrayItemButtonIcon = '➕'
+$AddArrayItemButtonToolTip = "Add a new item to this array"
 $ClearButtonHeader = 'Clear Value'
 $ClearButtonIcon = '🧹'
+$ClearButtonToolTip = "Clear this value"
+$ClearButtonAllToolTip = "Clear the value of every item in this array"
 $RandomValuesButtonHeader = 'Random Value'
 $RandomValuesButtonIcon = '🎲'
+$RandomValuesButtonToolTip = "Fill this value with a random value"
+$RandomValuesButtonAllToolTip = "Fill every item in this array with random values"
 $DisableEnableButtonHeaderDisabled = '❌'
 $DisableEnableButtonIconDisabled = $null
 $DisableEnableButtonHeaderEnabled = 'Disable'
 $DisableEnableButtonIconEnabled = '❌'
+$DisableEnableButtonToolTipEnabled = "Disable this item so it is not used when constructing the object"
+$DisableEnableButtonToolTipDisabled = "Enable this item so it is used when constructing the object"
+$DisableEnableButtonAllToolTipEnabled = "Disable every item in this array so they are not used when constructing the object"
+$DisableEnableButtonAllToolTipDisabled = "Enable every item in this array so they are used when constructing the object"
 $DeleteButtonHeader = 'Delete'
 $DeleteButtonIcon = '🗑'
+$DeleteButtonToolTip = "Remove this item from the array"
+$DeleteButtonAllToolTip = "Remove every item from this array"
 $LockUnlockButtonHeaderLocked = '🔒'
 $LockUnlockButtonIconLocked = $null
 $LockUnlockButtonHeaderUnlocked = 'Lock'
 $LockUnlockButtonIconUnlocked = '🔓'
+$LockUnlockButtonToolTipUnlocked = "Lock to protect from Random Value, Clear, Disable, and Delete"
+$LockUnlockButtonToolTipLocked = "Unlock to allow Random Value, Clear, Disable, and Delete"
+$LockedButtonToolTip = "Unlock to use"
+
+$ButtonMenuToolTip = "More actions"
 
 $ConstructButtonHeader = 'Construct'
 $ConstructButtonIcon = '🔨'
+$ConstructButtonToolTip = "Construct Object"
+$ConstructButtonAllToolTip = "Construct every object in this array"
 
 $DragHandleIcon = '☰'
 $DragHandleToolTip = "Drag to reorder`nSHIFT: Swap positions"
@@ -147,14 +184,38 @@ $SearchButtonHeader = 'Search'
 $SearchButtonIcon = '🔍'
 $SearchButtonToolTip = "Search (Ctrl+F)"
 $SearchRegexButtonHeader = '.*'
-$SearchRegexButtonToolTip = "Toggle Regular Expression (Alt+R)"
+$SearchRegexButtonToolTipEnabled = "Regex Mode: ON (Alt+R to toggle)"
+$SearchRegexButtonToolTipDisabled = "Regex Mode: OFF (Literal String - Alt+R to toggle)"
 $SearchActionsButtonHeader = '⚡ Actions ▾'
 $SearchActionsButtonToolTip = "Actions on Matches"
 
-$QuickSetMenuNameSuffix = 'QuickSetMenu'
-$QuickSetBadgeNameSuffix = 'QuickSetBadge'
 $QuickSetHeader = 'QuickSet'
 $QuickSetIcon = '⚡'
+$QuickSetToolTip = "Save and load named sets of values for this item"
+$QuickSetSetMenuHeader = 'Set'
+$QuickSetSetMenuIcon = '📁'
+$QuickSetSetMenuToolTip = "Load a saved QuickSet"
+$QuickSetRefreshButtonHeader = 'Refresh'
+$QuickSetRefreshButtonIcon = '🔄'
+$QuickSetRefreshButtonToolTip = "Reload the list of saved QuickSets from disk"
+$QuickSetSaveButtonHeader = 'Save As'
+$QuickSetSaveButtonIcon = '💾'
+$QuickSetSaveButtonToolTip = "Save the current values as a new QuickSet"
+$QuickSetRenameButtonHeader = 'Rename'
+$QuickSetRenameButtonIcon = '✏️'
+$QuickSetRenameButtonToolTip = "Rename the active QuickSet`nLoad a QuickSet first"
+$QuickSetOverwriteButtonHeader = 'Overwrite'
+$QuickSetOverwriteButtonIcon = '⚠️'
+$QuickSetOverwriteButtonToolTip = "Replace the active QuickSet with the current values`nLoad a QuickSet first"
+$QuickSetClearButtonHeader = 'Clear'
+$QuickSetClearButtonIcon = '🧹'
+$QuickSetClearButtonToolTip = "Save the current values to the active QuickSet, then clear the values`nLoad a QuickSet first"
+$QuickSetCloseButtonHeader = 'Close'
+$QuickSetCloseButtonIcon = '❌'
+$QuickSetCloseButtonToolTip = "Close the active QuickSet and clear the values without saving`nLoad a QuickSet first"
+$QuickSetDeleteButtonHeader = 'Delete'
+$QuickSetDeleteButtonIcon = '🗑'
+$QuickSetDeleteButtonToolTip = "Permanently delete the active QuickSet file`nLoad a QuickSet first"
 
 $SearchOriginalStyles = @{}
 
@@ -166,17 +227,6 @@ $SearchOriginalStyles = @{}
 Add-Type -AssemblyName PresentationFramework -ErrorAction Stop
 Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop
 
-# Fix WPF MenuDropAlignment issue where submenus close unexpectedly on mouse movement
-try {
-    $menuDropAlignmentField = [System.Windows.SystemParameters].GetField('_menuDropAlignment', [System.Reflection.BindingFlags]'NonPublic,Static')
-    if ($null -ne $menuDropAlignmentField -and [System.Windows.SystemParameters]::MenuDropAlignment) {
-        $menuDropAlignmentField.SetValue($null, $false)
-    }
-}
-catch {
-    Write-Host "{MenuDropAlignment Fix} $_"
-}
-
 #endregion #0 Add Types
 
 
@@ -185,7 +235,7 @@ catch {
 function ViewUI {
     param(
         [Parameter(ValueFromPipeline = $true)][array]$UIElement,
-        [string[]]$PropertiesToLookAt = @('Name', 'DataContext', 'Header', 'Child', 'Content', 'Children', 'Items', 'ToolBars', 'Text', 'SelectedItem', 'Password')
+        [string[]]$PropertiesToLookAt = @('Name', 'Tag', 'DataContext', 'Header', 'Child', 'Content', 'Children', 'Items', 'ToolBars', 'Text', 'SelectedItem', 'Password')
     )
     begin {
         $r = @()
@@ -346,9 +396,9 @@ function Add-BaseDockPanelChild {
 } # function Add-BaseDockPanelChild
 
 function Add-BaseMenuChild {
-    param( [ref]$Menu, [ref]$Child )
+    param( [ref]$Menu, [ref]$Child, [int]$Index = 0 )
     try {
-        $Menu.Value.AddChild($Child.Value)
+        $Menu.Value.Items.Insert($Index, $Child.Value)
     }
     catch {
         Write-Host "{Add-BaseMenuChild} $_" -ForegroundColor Red
@@ -433,7 +483,7 @@ function New-BaseRichTextBox {
     $RichTextBox.Document.Blocks.Add($Paragraph)
 
     return $RichTextBox
-}
+} # function New-BaseRichTextBox
 
 function New-BaseButton {
     param( [hashtable]$Parameters = @{} )
@@ -444,8 +494,6 @@ function New-BaseSeparator {
     param( [hashtable]$Parameters = @{} )
     [System.Windows.Controls.Separator]$Parameters
 } # function New-BaseSeparator
-
-
 
 function New-BaseComboBox {
     param( [hashtable]$Parameters = @{} )
@@ -462,7 +510,16 @@ function New-BaseMenuItem {
     $Parameters.FontFamily = $FontFamily
     $Parameters.Cursor = 'Hand'
     try {
-        [System.Windows.Controls.MenuItem]$Parameters
+        $MenuItem = [System.Windows.Controls.MenuItem]$Parameters
+        $MenuItem.Add_SubmenuOpened({
+                param($s, $e)
+                if ($e.Source -ne $s) { return }
+                $Popup = $s.Template.FindName('PART_Popup', $s)
+                if ($Popup) {
+                    $Popup.HorizontalOffset = $SubMenuOverlapOffset
+                }
+            })
+        return $MenuItem
     }
     catch {
         Write-Host "{New-BaseMenuItem} $_" -ForegroundColor Red
@@ -592,7 +649,7 @@ function Add-ContentToWrapper {
 } # function Add-ContentToWrapper
 
 function Add-CustomMenuChild {
-    param( [ref]$Wrapper, [ref]$Child )
+    param( [ref]$Wrapper, [ref]$Child, [int]$Index = 0 )
 
     if ($Wrapper.Value.Name -eq 'ButtonMenu') {
         $Menu = $Wrapper.Value.Parent
@@ -602,7 +659,7 @@ function Add-CustomMenuChild {
     }
 
     try {
-        $Menu.Items.Add($Child.Value) | Out-Null
+        $Menu.Items.Insert($Index, $Child.Value) | Out-Null
     }
     catch {
         Write-Host "{Add-CustomMenuChild} $_" -ForegroundColor Red
@@ -857,15 +914,15 @@ function New-CustomMenu {
         VerticalAlignment   = 'Center'
         HorizontalAlignment = 'Right'
         Cursor              = 'Hand'
-        FlowDirection       = 'RightToLeft'
     }
 
     $MenuItem = New-BaseMenuItem @{
-        Name          = $ButtonMenuName
-        Header        = '⋮'
-        Visibility    = 'Collapsed'
-        FlowDirection = 'LeftToRight'
+        Name       = $ButtonMenuName
+        Header     = '⋮'
+        ToolTip    = $ButtonMenuToolTip
+        Visibility = 'Collapsed'
     }
+    
     Add-BaseMenuChild ([ref]$Menu) ([ref]$MenuItem)
 
     $Menu
@@ -968,7 +1025,7 @@ function New-ContentHeader {
     $ContentHeaderButtonMenu = New-CustomMenu
 
     $MinMaxButton = New-MinMaxButton
-    Add-BaseMenuChild ([ref]$ContentHeaderButtonMenu) ([ref]$MinMaxButton)
+    Add-BaseMenuChild ([ref]$ContentHeaderButtonMenu) ([ref]$MinMaxButton) 0
 
     Add-BaseDockPanelChild ([ref]$ContentHeaderTitleBorderDock) ([ref]$ContentHeaderButtonMenu) 'Right'
 
@@ -1013,6 +1070,20 @@ function New-ContentHeader {
 #region #2 Content Controls
 
 #region #3 Content Controls Processes
+
+function Invoke-ConstructButtonClick {
+    param($s, $e)
+    if ($s.Header -eq ($ConstructButtonHeader + ' All')) {
+        $ContentHeaderBorder = Find-ObjectWhere -Object ([ref]$s) -FindWhere { $_.Name -eq $ContentHeaderBorderName } -DigProperties 'Parent' -FindMax 1
+        $Constructs = Find-ObjectWhere -Object $ContentHeaderBorder -FindWhere { $_.Name -eq $ConstructName }
+        :Constructs foreach ($Construct in $Constructs) {
+            Build-Object -Object ([ref]$Construct)
+        } # Constructs
+    }
+    else {
+        Build-Object -Object ([ref]$s)
+    }
+} # function Invoke-ConstructButtonClick
 
 function New-TypeContent {
     param(
@@ -1087,7 +1158,8 @@ function New-TypeContent {
         Add-DragDropLogic ([ref]$Top)
     }
     elseif ($Type.IsArray) {
-        $Top.DataContext = $TargetType.FullName
+        if (-not ($Top.Tag -is [hashtable])) { $Top.Tag = @{} }
+        $Top.Tag.TargetType = $TargetType
         Add-ArrayFunctionality -ArrayItemType 'Array' -Wrapper ([ref]$Top) -WrapperType $WrapperType
     }
 
@@ -1112,7 +1184,7 @@ function New-TypeContent {
 
     $QuickSetButton = Find-ObjectWhere -Object ([ref]$Menu) -FindWhere { $_.Name -like "*$QuickSetMenuNameSuffix" }
     if ($null -eq $QuickSetButton) {
-        $QuickSetButton = New-QuickSetMenuItem -ActionFrom $Top.Name
+        $QuickSetButton = New-QuickSetMenuItem -ActionFrom $Top.Name -IsConstruct $IsConstruct
         Add-ChildToItemsButtonMenu ([ref]$Top) ([ref]$QuickSetButton)
     }
 
@@ -1139,23 +1211,10 @@ function New-TypeContent {
             Name    = $ContentWrapper.Value.Name + $ConstructButtonNameSuffix
             Header  = $(if ($ConstructArray) { $ConstructButtonHeader + ' All' } else { $ConstructButtonIcon })
             Icon    = $(if ($ConstructArray) { $ConstructButtonIcon } else { $null })
-            ToolTip = 'Construct Object'
+            ToolTip = $(if ($ConstructArray) { $ConstructButtonAllToolTip } else { $ConstructButtonToolTip })
         }
 
-        $ConstructButton.Add_Click({
-                param($sender, $e)
-                if ($sender.Header -eq ($ConstructButtonHeader + ' All')) {
-                    $ContentHeaderBorder = Find-ObjectWhere -Object ([ref]$Sender) -FindWhere { $_.Name -eq $ContentHeaderBorderName } -DigProperties 'Parent' -FindMax 1
-                    $Constructs = Find-ObjectWhere -Object $ContentHeaderBorder -FindWhere { $_.Name -eq $ConstructName }
-                    :Constructs foreach ($Construct in $Constructs) {
-                        Build-Object -Object ([ref]$Construct)
-                    } # Constructs
-                }
-                else {
-                    Build-Object -Object ([ref]$Sender)
-                }
-            }
-        )
+        $ConstructButton.Add_Click({ param($s, $e) Invoke-ConstructButtonClick $s $e })
 
         if ($ConstructArray) {
             Add-ChildToItemsButtonMenu ([ref]$Top) ([ref]$(New-BaseSeparator)) 0
@@ -1229,7 +1288,13 @@ function Add-ArrayFunctionality {
     )
     if ($ArrayItemType -eq 'Array') {
         # Button: Add
-        $AddButton = New-AddArrayItemButton -Type $Wrapper.Value.DataContext
+        $TargetType = if ($Wrapper.Value.Tag -is [hashtable] -and $Wrapper.Value.Tag.ContainsKey('TargetType')) {
+            $Wrapper.Value.Tag.TargetType
+        }
+        else {
+            $Wrapper.Value.DataContext
+        }
+        $AddButton = New-AddArrayItemButton -Type $TargetType
         Add-CustomMenuChild $Wrapper ([ref]$AddButton)
 
         # Button: Search
@@ -1245,11 +1310,11 @@ function Add-ArrayFunctionality {
         Add-ChildToItemsButtonMenu $Wrapper ([ref]$LockUnlockButton)
 
         # Button: Random Values All
-        $RandomValuesButton = New-RandomValuesButton -Header "$($RandomValuesButtonHeader + 's')" -ActionFrom $Wrapper.Value.Name
+        $RandomValuesButton = New-RandomValuesButton -Header "$($RandomValuesButtonHeader + 's')" -ToolTip $RandomValuesButtonAllToolTip -ActionFrom $Wrapper.Value.Name
         Add-ChildToItemsButtonMenu $Wrapper ([ref]$RandomValuesButton)
 
         # Button: Clear All
-        $ClearButton = New-ClearButton -Header "$($ClearButtonHeader + 's')" -ActionFrom $Wrapper.Value.Name
+        $ClearButton = New-ClearButton -Header "$($ClearButtonHeader + 's')" -ToolTip $ClearButtonAllToolTip -ActionFrom $Wrapper.Value.Name
         Add-ChildToItemsButtonMenu $Wrapper ([ref]$ClearButton)
 
         # Button: Enable/Disable All
@@ -1257,7 +1322,7 @@ function Add-ArrayFunctionality {
         Add-ChildToItemsButtonMenu $Wrapper ([ref]$DisableEnableButton)
 
         # Button: Delete All
-        $DeleteButton = New-DeleteButton -Header ($DeleteButtonHeader + ' All') -ActionFrom $Wrapper.Value.Name
+        $DeleteButton = New-DeleteButton -Header ($DeleteButtonHeader + ' All') -ToolTip $DeleteButtonAllToolTip -ActionFrom $Wrapper.Value.Name
         Add-ChildToItemsButtonMenu $Wrapper ([ref]$DeleteButton)
     }
     elseif ($ArrayItemType -eq 'ArrayItem') {
@@ -1367,6 +1432,14 @@ function Get-ContentValue {
 
 #region #4 QuickSet
 
+function Invoke-QuickSetInputDialogResult {
+    param($Dialog, [string]$Value = $null, [bool]$DialogResult = $false)
+    $script:QuickSetDialogResult = $Value
+    $Dialog.DialogResult = $DialogResult
+    $Dialog.Close()
+} # function Invoke-QuickSetInputDialogResult
+
+
 function Show-QuickSetInputDialog {
     param(
         [string]$Title = 'QuickSet',
@@ -1409,7 +1482,7 @@ function Show-QuickSetInputDialog {
     [System.Windows.Controls.DockPanel]::SetDock($ButtonStack, 'Bottom')
     $Dock.Children.Add($ButtonStack) | Out-Null
 
-    $OkBtn = New-BaseButton @{
+    $OkButton = New-BaseButton @{
         Content         = 'OK'
         Width           = 70
         Height          = 26
@@ -1421,9 +1494,9 @@ function Show-QuickSetInputDialog {
         Cursor          = 'Hand'
         IsDefault       = $true
     }
-    $ButtonStack.Children.Add($OkBtn) | Out-Null
+    $ButtonStack.Children.Add($OkButton) | Out-Null
 
-    $CancelBtn = New-BaseButton @{
+    $CancelButton = New-BaseButton @{
         Content         = 'Cancel'
         Width           = 70
         Height          = 26
@@ -1434,7 +1507,7 @@ function Show-QuickSetInputDialog {
         Cursor          = 'Hand'
         IsCancel        = $true
     }
-    $ButtonStack.Children.Add($CancelBtn) | Out-Null
+    $ButtonStack.Children.Add($CancelButton) | Out-Null
 
     $PromptLabel = New-BaseTextBlock @{
         Text       = $Prompt
@@ -1458,16 +1531,9 @@ function Show-QuickSetInputDialog {
     $Dock.Children.Add($InputBox) | Out-Null
 
     $script:QuickSetDialogResult = $null
-    $OkBtn.Add_Click({
-            $script:QuickSetDialogResult = $InputBox.Text
-            $Dialog.DialogResult = $true
-            $Dialog.Close()
-        })
-    $CancelBtn.Add_Click({
-            $script:QuickSetDialogResult = $null
-            $Dialog.DialogResult = $false
-            $Dialog.Close()
-        })
+    $OkButton.Add_Click({ Invoke-QuickSetInputDialogResult -Dialog $Dialog -Value $InputBox.Text -DialogResult $true })
+    $CancelButton.Add_Click({ Invoke-QuickSetInputDialogResult -Dialog $Dialog -DialogResult $false })
+
 
     $Dialog.Add_Loaded({
             $InputBox.Focus() | Out-Null
@@ -1477,6 +1543,14 @@ function Show-QuickSetInputDialog {
     $null = $Dialog.ShowDialog()
     return $script:QuickSetDialogResult
 } # function Show-QuickSetInputDialog
+
+function Invoke-QuickSetConfirmDialogResult {
+    param($Dialog, [bool]$Result = $false)
+    $script:QuickSetConfirmResult = $Result
+    $Dialog.DialogResult = $Result
+    $Dialog.Close()
+} # function Invoke-QuickSetConfirmDialogResult
+
 
 function Show-QuickSetConfirmDialog {
     param(
@@ -1519,7 +1593,7 @@ function Show-QuickSetConfirmDialog {
     [System.Windows.Controls.DockPanel]::SetDock($ButtonStack, 'Bottom')
     $Dock.Children.Add($ButtonStack) | Out-Null
 
-    $YesBtn = New-BaseButton @{
+    $YesButton = New-BaseButton @{
         Content         = 'Yes'
         Width           = 70
         Height          = 26
@@ -1531,9 +1605,9 @@ function Show-QuickSetConfirmDialog {
         Cursor          = 'Hand'
         IsDefault       = $true
     }
-    $ButtonStack.Children.Add($YesBtn) | Out-Null
+    $ButtonStack.Children.Add($YesButton) | Out-Null
 
-    $NoBtn = New-BaseButton @{
+    $NoButton = New-BaseButton @{
         Content         = 'No'
         Width           = 70
         Height          = 26
@@ -1544,7 +1618,7 @@ function Show-QuickSetConfirmDialog {
         Cursor          = 'Hand'
         IsCancel        = $true
     }
-    $ButtonStack.Children.Add($NoBtn) | Out-Null
+    $ButtonStack.Children.Add($NoButton) | Out-Null
 
     $MsgBlock = New-BaseTextBlock @{
         Text              = $Message
@@ -1556,16 +1630,9 @@ function Show-QuickSetConfirmDialog {
     $Dock.Children.Add($MsgBlock) | Out-Null
 
     $script:QuickSetConfirmResult = $false
-    $YesBtn.Add_Click({
-            $script:QuickSetConfirmResult = $true
-            $Dialog.DialogResult = $true
-            $Dialog.Close()
-        })
-    $NoBtn.Add_Click({
-            $script:QuickSetConfirmResult = $false
-            $Dialog.DialogResult = $false
-            $Dialog.Close()
-        })
+    $YesButton.Add_Click({ Invoke-QuickSetConfirmDialogResult -Dialog $Dialog -Result $true })
+    $NoButton.Add_Click({ Invoke-QuickSetConfirmDialogResult -Dialog $Dialog -Result $false })
+
 
     $null = $Dialog.ShowDialog()
     return $script:QuickSetConfirmResult
@@ -1606,8 +1673,13 @@ function Get-WrapperTargetType {
     if ($Target -is [array]) { $Target = $Target[0] }
     if (-not $Target) { return [object] }
 
-    if ($Target.Tag -is [hashtable] -and $Target.Tag.ContainsKey('Type') -and $null -ne $Target.Tag.Type) {
-        return $Target.Tag.Type
+    if ($Target.Tag -is [hashtable]) {
+        if ($Target.Tag.ContainsKey('TargetType') -and $null -ne $Target.Tag.TargetType) {
+            return $Target.Tag.TargetType
+        }
+        if ($Target.Tag.ContainsKey('Type') -and $null -ne $Target.Tag.Type) {
+            return $Target.Tag.Type
+        }
     }
     if ($Target.DataContext) {
         if ($Target.DataContext -is [type]) { return $Target.DataContext }
@@ -1621,6 +1693,9 @@ function Get-WrapperTargetType {
     }
     $Content = Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $_.Name -eq $ContentElementName } -FindMax 1
     if ($Content) {
+        if ($Content.Tag -is [hashtable] -and $Content.Tag.ContainsKey('TargetType') -and $null -ne $Content.Tag.TargetType) {
+            return $Content.Tag.TargetType
+        }
         if ($Content.DataContext) {
             if ($Content.DataContext -is [type]) { return $Content.DataContext }
             try { return [type]$Content.DataContext } catch { return $Content.DataContext }
@@ -1637,9 +1712,9 @@ function Get-WrapperTargetType {
 } # function Get-WrapperTargetType
 
 function Get-QuickSetMenuFromSender {
-    param($Sender)
-    if (-not $Sender) { return $null }
-    $Target = if ($Sender -is [System.Management.Automation.PSReference]) { $Sender.Value } else { $Sender }
+    param($s)
+    if (-not $s) { return $null }
+    $Target = if ($s -is [System.Management.Automation.PSReference]) { $s.Value } else { $s }
     if ($Target -is [array]) { $Target = $Target[0] }
     if ($Target -is [System.Windows.Controls.MenuItem] -and $Target.Name -like "*$QuickSetMenuNameSuffix") {
         return $Target
@@ -1651,18 +1726,22 @@ function Get-QuickSetMenuFromSender {
 
 function Get-QuickSetWrapper {
     param(
-        [Parameter(Mandatory)]$Sender,
+        [Parameter(Mandatory)]$s,
         [string]$ActionFrom
     )
-    $TargetSender = if ($Sender -is [System.Management.Automation.PSReference]) { $Sender.Value } else { $Sender }
+    $TargetSender = if ($s -is [System.Management.Automation.PSReference]) { $s.Value } else { $s }
     if ($TargetSender -is [array]) { $TargetSender = $TargetSender[0] }
 
-    $QSMenu = Get-QuickSetMenuFromSender -Sender $TargetSender
-    if (-not $ActionFrom -and $QSMenu -and $QSMenu.Name) {
-        $ActionFrom = $QSMenu.Name.Replace("_$QuickSetMenuNameSuffix", '')
-    }
-    if (-not $ActionFrom -and $TargetSender.Name -like "*$QuickSetBadgeNameSuffix") {
-        $ActionFrom = $TargetSender.Name.Replace("_$QuickSetBadgeNameSuffix", '')
+    if (-not $ActionFrom) {
+        if ($TargetSender.Name -like "*$QuickSetBadgeNameSuffix") {
+            $ActionFrom = $TargetSender.Name.Replace("_$QuickSetBadgeNameSuffix", '')
+        }
+        else {
+            $QSMenu = Get-QuickSetMenuFromSender $TargetSender
+            if ($QSMenu -and $QSMenu.Name) {
+                $ActionFrom = $QSMenu.Name.Replace("_$QuickSetMenuNameSuffix", '')
+            }
+        }
     }
 
     $ContentWrapper = $null
@@ -1798,10 +1877,10 @@ function Get-WrapperQuickSetValue {
 
     $StopAtChild = { @($ContentHeaderBorderName, $ContentBorderName) -contains $_.Name }
 
-    $AddBtn = Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $_.Name -like "*$AddArrayItemButtonName*" } -DepthMax 1 -DepthWhere $StopAtChild -FindMax 1
+    $AddButton = Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $_.Name -like "*$AddArrayItemButtonName*" } -DepthMax 1 -DepthWhere $StopAtChild -FindMax 1
     $ContentSlot = Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $_.Name -eq $ContentSlotElementName } -DepthMax 1 -DepthWhere $StopAtChild -FindMax 1
 
-    if ($AddBtn -and $ContentSlot) {
+    if ($AddButton -and $ContentSlot) {
         $List = [System.Collections.ArrayList]@()
         foreach ($Child in @($ContentSlot.Children)) {
             $ChildVal = Get-WrapperQuickSetValue -Wrapper $Child
@@ -1865,18 +1944,18 @@ function Set-WrapperQuickSetValue {
 
     $StopAtChild = { @($ContentHeaderBorderName, $ContentBorderName) -contains $_.Name }
 
-    $AddBtn = Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $_.Name -like "*$AddArrayItemButtonName*" } -DepthMax 1 -DepthWhere $StopAtChild -FindMax 1
+    $AddButton = Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $_.Name -like "*$AddArrayItemButtonName*" } -DepthMax 1 -DepthWhere $StopAtChild -FindMax 1
     $ContentSlot = Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $_.Name -eq $ContentSlotElementName } -DepthMax 1 -DepthWhere $StopAtChild -FindMax 1
 
-    if ($AddBtn -and $ContentSlot) {
+    if ($AddButton -and $ContentSlot) {
         $List = @($Value)
         while ($ContentSlot.Children.Count -lt $List.Count) {
-            $AddBtn.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.MenuItem]::ClickEvent)))
+            $AddButton.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.MenuItem]::ClickEvent)))
         }
         while ($ContentSlot.Children.Count -gt $List.Count) {
             $LastChild = $ContentSlot.Children[$ContentSlot.Children.Count - 1]
-            $DelBtn = Find-ObjectWhere -Object ([ref]$LastChild) -FindWhere { $_.Name -like "*$DeleteButtonNameSuffix" } -FindMax 1
-            if ($DelBtn) {
+            $DelButton = Find-ObjectWhere -Object ([ref]$LastChild) -FindWhere { $_.Name -like "*$DeleteButtonNameSuffix" } -FindMax 1
+            if ($DelButton) {
                 $ContentSlot.Children.Remove($LastChild)
             }
             else {
@@ -2051,9 +2130,9 @@ function Clear-WrapperQuickSetValue {
     Update-QuickSetBadge -Wrapper $Target -DisplayName $null
 
     # 1. Array wrapper: remove all array item children from content slot
-    $AddBtn = Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $_.Name -like "*$AddArrayItemButtonName*" } -DepthMax 1 -DepthWhere $StopAtChild -FindMax 1
+    $AddButton = Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $_.Name -like "*$AddArrayItemButtonName*" } -DepthMax 1 -DepthWhere $StopAtChild -FindMax 1
     $ContentSlot = Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $_.Name -eq $ContentSlotElementName } -DepthMax 1 -DepthWhere $StopAtChild -FindMax 1
-    if ($AddBtn -and $ContentSlot) {
+    if ($AddButton -and $ContentSlot) {
         :DeleteArrayItems foreach ($Child in @($ContentSlot.Children)) {
             if ((Get-IsLocked $Child)) { continue DeleteArrayItems }
             $ContentSlot.Children.Remove($Child)
@@ -2114,6 +2193,78 @@ function Clear-WrapperQuickSetValue {
     }
 } # function Clear-WrapperQuickSetValue
 
+function Set-QuickSetActiveButtonsState {
+    param(
+        [Parameter(Mandatory)]$QuickSetMenuItem,
+        [Parameter(Mandatory)][bool]$IsEnabled
+    )
+    $QSMenu = if ($QuickSetMenuItem -is [System.Management.Automation.PSReference]) { $QuickSetMenuItem.Value } else { $QuickSetMenuItem }
+    if ($QSMenu -is [array]) { $QSMenu = $QSMenu[0] }
+    if (-not $QSMenu) { return }
+
+    $ActiveOnlyButtonSuffixes = @(
+        $QuickSetSaveButtonNameSuffix
+        $QuickSetOverwriteButtonNameSuffix
+        $QuickSetRenameButtonNameSuffix
+        $QuickSetClearButtonNameSuffix
+        $QuickSetCloseButtonNameSuffix
+        $QuickSetDeleteButtonNameSuffix
+    )
+
+    foreach ($Suffix in $ActiveOnlyButtonSuffixes) {
+        $Item = Find-ObjectWhere -Object ([ref]$QSMenu) -FindWhere { $_.Name -like "*_$Suffix" } -FindMax 1
+        if ($Item -is [array]) { $Item = $Item[0] }
+        if ($Item) {
+            $Item.IsEnabled = $IsEnabled
+        }
+    }
+} # function Set-QuickSetActiveButtonsState
+
+function Invoke-ExistingBadgeClick {
+    param($s, $e)
+    if ($e) { $e.Handled = $true }
+    try {
+        $TargetWrapper = if ($s.Tag) { $s.Tag } else { Get-QuickSetWrapper $s }
+        if (-not $TargetWrapper) { return }
+
+        $ActiveName = if ($TargetWrapper.Tag -is [hashtable] -and $TargetWrapper.Tag.ContainsKey('ActiveQuickSet') -and -not [string]::IsNullOrWhiteSpace($TargetWrapper.Tag.ActiveQuickSet)) {
+            $TargetWrapper.Tag.ActiveQuickSet
+        }
+        elseif (-not [string]::IsNullOrWhiteSpace($s.ToolTip)) {
+            $s.ToolTip
+        }
+        else { $null }
+
+        if (-not [string]::IsNullOrWhiteSpace($ActiveName)) {
+            $Type = Get-WrapperTargetType -Wrapper $TargetWrapper
+            $TypeDir = Get-QuickSetTypeDirectory -Type $Type
+            $CleanName = $ActiveName -replace '[\\/:*?"<>|]', '_'
+            $FilePath = Join-Path $TypeDir "$CleanName.json"
+
+            Set-WrapperDisplayName -Wrapper $TargetWrapper -DisplayName $CleanName
+
+            $CurrentValue = Get-WrapperQuickSetValue -Wrapper $TargetWrapper
+            $JsonText = ConvertTo-Json -InputObject $CurrentValue -Depth 20
+            Set-Content -LiteralPath $FilePath -Value $JsonText -Encoding UTF8
+        }
+
+        Clear-WrapperQuickSetValue -Wrapper $TargetWrapper
+
+        if (-not ($TargetWrapper.Tag -is [hashtable])) { $TargetWrapper.Tag = @{} }
+        $TargetWrapper.Tag.ActiveQuickSet = $null
+        Update-QuickSetBadge -Wrapper $TargetWrapper -DisplayName $null
+
+        $QSMenu = Find-ObjectWhere -Object ([ref]$TargetWrapper) -FindWhere { $_.Name -like "*$QuickSetMenuNameSuffix" } -FindMax 1
+        if ($QSMenu) {
+            Set-QuickSetActiveButtonsState -QuickSetMenuItem $QSMenu -IsEnabled $false
+            Update-QuickSetSubMenu -QuickSetMenuItem $QSMenu -Wrapper $TargetWrapper
+        }
+    }
+    catch {
+        [System.Windows.MessageBox]::Show("Error saving QuickSet: $_", "QuickSet Error") | Out-Null
+    }
+} # function Invoke-ExistingBadgeClick
+
 function Update-QuickSetBadge {
     param(
         [Parameter(Mandatory)]$Wrapper,
@@ -2155,61 +2306,43 @@ function Update-QuickSetBadge {
         }
         $ExistingBadge.Tag = $Target
 
-        $ExistingBadge.Add_Click({
-                param($s, $e)
-                if ($e) { $e.Handled = $true }
-                try {
-                    $TargetWrapper = if ($s.Tag) { $s.Tag } else { Get-QuickSetWrapper -Sender $s }
-                    if (-not $TargetWrapper) { return }
+        $ExistingBadge.Add_Click({ param($s, $e) Invoke-ExistingBadgeClick $s $e })
 
-                    $ActiveName = if ($TargetWrapper.Tag -is [hashtable] -and $TargetWrapper.Tag.ContainsKey('ActiveQuickSet') -and -not [string]::IsNullOrWhiteSpace($TargetWrapper.Tag.ActiveQuickSet)) {
-                        $TargetWrapper.Tag.ActiveQuickSet
-                    }
-                    elseif (-not [string]::IsNullOrWhiteSpace($s.ToolTip)) {
-                        $s.ToolTip
-                    }
-                    else { $null }
-
-                    if (-not [string]::IsNullOrWhiteSpace($ActiveName)) {
-                        $Type = Get-WrapperTargetType -Wrapper $TargetWrapper
-                        $TypeDir = Get-QuickSetTypeDirectory -Type $Type
-                        $CleanName = $ActiveName -replace '[\\/:*?"<>|]', '_'
-                        $FilePath = Join-Path $TypeDir "$CleanName.json"
-
-                        Set-WrapperDisplayName -Wrapper $TargetWrapper -DisplayName $CleanName
-
-                        $CurrentValue = Get-WrapperQuickSetValue -Wrapper $TargetWrapper
-                        $JsonText = ConvertTo-Json -InputObject $CurrentValue -Depth 20
-                        Set-Content -LiteralPath $FilePath -Value $JsonText -Encoding UTF8
-                    }
-
-                    Clear-WrapperQuickSetValue -Wrapper $TargetWrapper
-
-                    if (-not ($TargetWrapper.Tag -is [hashtable])) { $TargetWrapper.Tag = @{} }
-                    $TargetWrapper.Tag.ActiveQuickSet = $null
-                    Update-QuickSetBadge -Wrapper $TargetWrapper -DisplayName $null
-
-                    $QSMenu = Find-ObjectWhere -Object ([ref]$TargetWrapper) -FindWhere { $_.Name -like "*$QuickSetMenuNameSuffix" } -FindMax 1
-                    if ($QSMenu) {
-                        Update-QuickSetSubMenu -QuickSetMenuItem $QSMenu -Wrapper $TargetWrapper
-                    }
-                }
-                catch {
-                    [System.Windows.MessageBox]::Show("Error saving QuickSet: $_", "QuickSet Error") | Out-Null
-                }
-            })
-
-        $ButtonMenu = Find-ObjectWhere -Object ([ref]$Menu) -FindWhere { $_.Name -eq $ButtonMenuName } -FindMax 1
-        
-        $Menu.Items.Add($ExistingBadge) | Out-Null
+        $Menu.Items.Insert(0, $ExistingBadge) | Out-Null
     }
     else {
         $ExistingBadge.Header = $QuickSetIcon
         $ExistingBadge.ToolTip = $DisplayName
         $ExistingBadge.Tag = $Target
         $ExistingBadge.Visibility = 'Visible'
+        if ($Menu.Items.IndexOf($ExistingBadge) -ne 0) {
+            $Menu.Items.Remove($ExistingBadge) | Out-Null
+            $Menu.Items.Insert(0, $ExistingBadge) | Out-Null
+        }
     }
 } # function Update-QuickSetBadge
+
+function Invoke-QuickSetSetItemClick {
+    param($s, $e, $TargetWrapper, $TargetFile, $TargetName, $CurrentQSMenu)
+    try {
+        $MenuToUpdate = if ($CurrentQSMenu) { $CurrentQSMenu } else { Get-QuickSetMenuFromSender $s }
+        $WrapperToUpdate = if ($TargetWrapper) { $TargetWrapper } else { Get-QuickSetWrapper $s }
+        if (-not $WrapperToUpdate) { return }
+
+        $RawJson = Get-Content -LiteralPath $TargetFile -Raw -Encoding UTF8
+        $LoadedVal = try { $RawJson | ConvertFrom-Json } catch { $RawJson }
+        Set-WrapperQuickSetValue -Wrapper $WrapperToUpdate -Value $LoadedVal
+
+        Set-WrapperDisplayName -Wrapper $WrapperToUpdate -DisplayName $TargetName
+        if ($MenuToUpdate) {
+            Set-QuickSetActiveButtonsState -QuickSetMenuItem $MenuToUpdate -IsEnabled $true
+            Update-QuickSetSubMenu -QuickSetMenuItem $MenuToUpdate -Wrapper $WrapperToUpdate
+        }
+    }
+    catch {
+        [System.Windows.MessageBox]::Show("Error loading QuickSet: $_", "QuickSet Error") | Out-Null
+    }
+} # function Invoke-QuickSetSetItemClick
 
 function Update-QuickSetSubMenu {
     param(
@@ -2224,7 +2357,7 @@ function Update-QuickSetSubMenu {
     if ($QSMenu -is [array]) { $QSMenu = $QSMenu[0] }
     if (-not $QSMenu) { return }
 
-    $SetMenu = Find-ObjectWhere -Object ([ref]$QSMenu) -FindWhere { $_.Name -like "*_QuickSet_Set" } -FindMax 1
+    $SetMenu = Find-ObjectWhere -Object ([ref]$QSMenu) -FindWhere { $_.Name -like "*_$QuickSetSetMenuNameSuffix" } -FindMax 1
     if ($SetMenu -is [array]) { $SetMenu = $SetMenu[0] }
     if (-not $SetMenu -or $SetMenu.IsSubmenuOpen) { return }
 
@@ -2249,7 +2382,7 @@ function Update-QuickSetSubMenu {
     }
     else { $null }
 
-    foreach ($File in $Files) {
+    :files foreach ($File in $Files) {
         $DisplayName = $File.BaseName
         $IsActive = ($DisplayName -eq $ActiveSet)
 
@@ -2267,29 +2400,10 @@ function Update-QuickSetSubMenu {
         $TargetFile = $File.FullName
         $TargetName = $DisplayName
         $CurrentQSMenu = $QSMenu
-        $SetItem.Add_Click({
-                param($s, $e)
-                try {
-                    $MenuToUpdate = if ($CurrentQSMenu) { $CurrentQSMenu } else { Get-QuickSetMenuFromSender -Sender $s }
-                    $WrapperToUpdate = if ($TargetWrapper) { $TargetWrapper } else { Get-QuickSetWrapper -Sender $s }
-                    if (-not $WrapperToUpdate) { return }
-
-                    $RawJson = Get-Content -LiteralPath $TargetFile -Raw -Encoding UTF8
-                    $LoadedVal = try { $RawJson | ConvertFrom-Json } catch { $RawJson }
-                    Set-WrapperQuickSetValue -Wrapper $WrapperToUpdate -Value $LoadedVal
-
-                    Set-WrapperDisplayName -Wrapper $WrapperToUpdate -DisplayName $TargetName
-                    if ($MenuToUpdate) {
-                        Update-QuickSetSubMenu -QuickSetMenuItem $MenuToUpdate -Wrapper $WrapperToUpdate
-                    }
-                }
-                catch {
-                    [System.Windows.MessageBox]::Show("Error loading QuickSet: $_", "QuickSet Error") | Out-Null
-                }
-            }.GetNewClosure())
+        $SetItem.Add_Click(({ param($s, $e) Invoke-QuickSetSetItemClick $s $e $TargetWrapper $TargetFile $TargetName $CurrentQSMenu }).GetNewClosure())
 
         $SetMenu.Items.Add($SetItem) | Out-Null
-    }
+    } # files foreach
 } # function Update-QuickSetSubMenu
 
 #endregion #4 QuickSet
@@ -2307,10 +2421,10 @@ function Expand-ElementParents {
             $Parent.Visibility = 'Visible'
             $HeaderBorder = Find-ObjectWhere -Object ([ref]$Parent) -FindWhere { @($ContentHeaderBorderName, $ContentBorderName) -contains $_.Name } -DigProperties 'Parent' -FindMax 1
             if ($HeaderBorder) {
-                $MinMaxBtn = Find-ObjectWhere -Object ([ref]$HeaderBorder) -FindWhere { $_.Name -eq $MinMaxButtonName } -FindMax 1
-                if ($MinMaxBtn) {
-                    $MinMaxBtn.Header = $MinMaxButtonMinedIcon
-                    $MinMaxBtn.ToolTip = $MinMaxButtonMinedToolTip
+                $MinMaxButton = Find-ObjectWhere -Object ([ref]$HeaderBorder) -FindWhere { $_.Name -eq $MinMaxButtonName } -FindMax 1
+                if ($MinMaxButton) {
+                    $MinMaxButton.Header = $MinMaxButtonMinedIcon
+                    $MinMaxButton.ToolTip = $MinMaxButtonMinedToolTip
                 }
             }
         }
@@ -2718,9 +2832,9 @@ function Close-SearchBar {
     }
     if (-not $SearchBar) { return }
 
-    $ActionsBtn = Find-ObjectWhere -Object ([ref]$SearchBar) -FindWhere { $_.Name -like "*$SearchActionsButtonNameSuffix" } -FindMax 1
-    if ($ActionsBtn -and $ActionsBtn.Tag) {
-        $ActionsBtn.Tag.IsOpen = $false
+    $ActionsButton = Find-ObjectWhere -Object ([ref]$SearchBar) -FindWhere { $_.Name -like "*$SearchActionsButtonNameSuffix" } -FindMax 1
+    if ($ActionsButton -and $ActionsButton.Tag) {
+        $ActionsButton.Tag.IsOpen = $false
     }
 
     # Restore visibility on any filtered items
@@ -2987,18 +3101,18 @@ function Invoke-SearchBatchAction {
     switch ($Action) {
         'Lock' {
             foreach ($Item in $SlotInfo.Matched) {
-                $LockBtn = Find-ObjectWhere -Object ([ref]$Item) -FindWhere { $_.Name -eq $LockUnlockButtonName } -FindMax 1
-                if ($LockBtn -and $LockBtn.Header -ne $LockUnlockButtonHeaderLocked) {
-                    $LockBtn.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.MenuItem]::ClickEvent)))
+                $LockButton = Find-ObjectWhere -Object ([ref]$Item) -FindWhere { $_.Name -eq $LockUnlockButtonName } -FindMax 1
+                if ($LockButton -and $LockButton.Header -ne $LockUnlockButtonHeaderLocked) {
+                    $LockButton.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.MenuItem]::ClickEvent)))
                 }
             }
         }
         'Unlock' {
             foreach ($Item in $SlotInfo.Matched) {
-                $LockBtns = Find-ObjectWhere -Object ([ref]$Item) -FindWhere { $_.Name -eq $LockUnlockButtonName }
-                foreach ($LBtn in $LockBtns) {
-                    if ($LBtn.Header -eq $LockUnlockButtonHeaderLocked) {
-                        $LBtn.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.MenuItem]::ClickEvent)))
+                $LockButtons = Find-ObjectWhere -Object ([ref]$Item) -FindWhere { $_.Name -eq $LockUnlockButtonName }
+                foreach ($LButton in $LockButtons) {
+                    if ($LButton.Header -eq $LockUnlockButtonHeaderLocked) {
+                        $LButton.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.MenuItem]::ClickEvent)))
                     }
                 }
             }
@@ -3040,17 +3154,17 @@ function Invoke-SearchBatchAction {
         'Disable' {
             foreach ($Item in $SlotInfo.Matched) {
                 if (Get-IsLocked $Item) { continue }
-                $DisableBtn = Find-ObjectWhere -Object ([ref]$Item) -FindWhere { $_.Name -like "*$DisableEnableButtonNameSuffix" } -FindMax 1
-                if ($DisableBtn -and $DisableBtn.Icon -ne $DisableEnableButtonIconDisabled) {
-                    $DisableBtn.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.MenuItem]::ClickEvent)))
+                $DisableButton = Find-ObjectWhere -Object ([ref]$Item) -FindWhere { $_.Name -like "*$DisableEnableButtonNameSuffix" } -FindMax 1
+                if ($DisableButton -and $DisableButton.Icon -ne $DisableEnableButtonIconDisabled) {
+                    $DisableButton.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.MenuItem]::ClickEvent)))
                 }
             }
         }
         'Delete' {
             foreach ($Item in @($SlotInfo.Matched)) {
                 if (Get-IsLocked $Item) { continue }
-                $DelBtn = Find-ObjectWhere -Object ([ref]$Item) -FindWhere { $_.Name -like "*$DeleteButtonNameSuffix" } -FindMax 1
-                if ($DelBtn) {
+                $DelButton = Find-ObjectWhere -Object ([ref]$Item) -FindWhere { $_.Name -like "*$DeleteButtonNameSuffix" } -FindMax 1
+                if ($DelButton) {
                     $SlotInfo.ContentSlot.Children.Remove($Item)
                 }
             }
@@ -3069,6 +3183,55 @@ function Invoke-SearchBatchAction {
 #endregion #3 Content Controls Actions
 
 #region #3 Content Controls Elements
+
+function Invoke-DateTimeNowButtonClick {
+    param($Calendar, $HourCombo, $MinuteCombo, $SecondCombo)
+    $now = Get-Date
+    $Calendar.SelectedDate = $now.Date
+    $Calendar.DisplayDate = $now.Date
+    $HourCombo.SelectedItem = $now.ToString('HH')
+    $MinuteCombo.SelectedItem = $now.ToString('mm')
+    $SecondCombo.SelectedItem = $now.ToString('ss')
+} # function Invoke-DateTimeNowButtonClick
+
+function Invoke-DateTimeOkButtonClick {
+    param($Calendar, $HourCombo, $MinuteCombo, $SecondCombo, $PickButton, $Dialog)
+    $selDate = if ($Calendar.SelectedDate) { $Calendar.SelectedDate } else { (Get-Date).Date }
+    $h = [int]($HourCombo.SelectedItem -as [int])
+    $m = [int]($MinuteCombo.SelectedItem -as [int])
+    $s = [int]($SecondCombo.SelectedItem -as [int])
+
+    $finalDateTime = [DateTime]::new($selDate.Year, $selDate.Month, $selDate.Day, $h, $m, $s)
+    $CustomDateTimePicker = Find-ObjectWhere -Object ([ref]$PickButton) -FindWhere { $_.Name -eq $CustomDateTimePickerName }
+    $ContentDateTimeDisplayTextBox = Find-ObjectWhere -Object ([ref]$CustomDateTimePicker) -FindWhere { $_.Name -eq $ContentDateTimeDisplayTextBoxName }
+    $ContentDateTimeDisplayTextBox.Text = $finalDateTime.ToString('yyyy-MM-dd HH:mm:ss')
+    $Dialog.Close()
+} # function Invoke-DateTimeOkButtonClick
+
+function Invoke-DateTimeCancelButtonClick {
+    param($Dialog)
+    $Dialog.Close()
+} # function Invoke-DateTimeCancelButtonClick
+
+function Invoke-SearchItemButtonClick {
+    param($s, $e, $TargetButton, $ActionType, $ActionName)
+    if ($TargetButton.Tag) {
+        $TargetButton.Tag.IsOpen = $false
+    }
+    if ($ActionType -eq 'Filter') {
+        Invoke-SearchFilterAction -ChildElement $TargetButton -Action $ActionName
+    }
+    else {
+        Invoke-SearchBatchAction -ChildElement $TargetButton -Action $ActionName
+    }
+} # function Invoke-SearchItemButtonClick
+
+function Invoke-SearchActionsButtonClick {
+    param($s, $e)
+    if ($s.Tag) {
+        $s.Tag.IsOpen = -not $s.Tag.IsOpen
+    }
+} # function Invoke-SearchActionsButtonClick
 
 function New-ContentEnum {
     param([type]$EnumType)
@@ -3097,18 +3260,19 @@ function New-ContentString {
 function New-ContentNumber {
     param( [type]$TargetType )
     $TextBox = New-BaseTextBox @{
-        Name        = $ContentElementName
-        DataContext = $TargetType
-        Margin      = 2
+        Name   = $ContentElementName
+        Tag    = @{ TargetType = $TargetType }
+        Margin = 2
     }
 
     $TextBox.Add_PreviewTextInput({
-            param($sender, $e)
-            $isSigned = -not $sender.DataContext.Name.StartsWith('U')
-            $isFloatingPoint = @('System.Single', 'System.Double', 'System.Decimal') -contains $sender.DataContext.FullName
-            $currentText = $sender.Text
-            $caretIndex = $sender.CaretIndex
-            $selectionLength = $sender.SelectionLength
+            param($s, $e)
+            $type = $s.Tag.TargetType
+            $isSigned = -not $type.Name.StartsWith('U')
+            $isFloatingPoint = @('System.Single', 'System.Double', 'System.Decimal') -contains $type.FullName
+            $currentText = $s.Text
+            $caretIndex = $s.CaretIndex
+            $selectionLength = $s.SelectionLength
 
             $predictedText = $currentText.Remove($caretIndex, $selectionLength).Insert($caretIndex, $e.Text)
 
@@ -3126,18 +3290,20 @@ function New-ContentNumber {
         })
 
     $TextBox.Add_TextChanged({
-            param($sender, $e)
-            $val = $sender.Text
+            param($s, $e)
+            $val = $s.Text
             if ([string]::IsNullOrWhiteSpace($val) -or $val -eq '-') {
                 return
             }
 
             try {
-                $null = $this.DataContext::Parse($val)
-                $sender.ToolTip = $null
+                $type = $s.Tag.TargetType
+                $null = $type::Parse($val)
+                $s.ToolTip = $null
             }
             catch {
-                $sender.ToolTip = "Invalid value for $($sender.DataContext.FullName)"
+                $type = $s.Tag.TargetType
+                $s.ToolTip = "Invalid value for $($type.FullName)"
             }
         })
 
@@ -3274,14 +3440,7 @@ function New-ContentDateTime {
                 Width   = 55
                 Margin  = '0,0,6,0'
             }
-            $NowButton.Add_Click({
-                    $now = Get-Date
-                    $Calendar.SelectedDate = $now.Date
-                    $Calendar.DisplayDate = $now.Date
-                    $HourCombo.SelectedItem = $now.ToString('HH')
-                    $MinuteCombo.SelectedItem = $now.ToString('mm')
-                    $SecondCombo.SelectedItem = $now.ToString('ss')
-                })
+            $NowButton.Add_Click({ Invoke-DateTimeNowButtonClick $Calendar $HourCombo $MinuteCombo $SecondCombo })
 
             $OkButton = New-BaseButton @{
                 Content   = 'OK'
@@ -3289,27 +3448,14 @@ function New-ContentDateTime {
                 Margin    = '0,0,6,0'
                 IsDefault = $true
             }
-            $OkButton.Add_Click({
-                    $selDate = if ($Calendar.SelectedDate) { $Calendar.SelectedDate } else { (Get-Date).Date }
-                    $h = [int]($HourCombo.SelectedItem -as [int])
-                    $m = [int]($MinuteCombo.SelectedItem -as [int])
-                    $s = [int]($SecondCombo.SelectedItem -as [int])
-
-                    $finalDateTime = [DateTime]::new($selDate.Year, $selDate.Month, $selDate.Day, $h, $m, $s)
-                    $CustomDateTimePicker = Find-ObjectWhere -Object ([ref]$PickButton) -FindWhere { $_.Name -eq $CustomDateTimePickerName }
-                    $ContentDateTimeDisplayTextBox = Find-ObjectWhere -Object ([ref]$CustomDateTimePicker) -FindWhere { $_.Name -eq $ContentDateTimeDisplayTextBoxName }
-                    $ContentDateTimeDisplayTextBox.Text = $finalDateTime.ToString('yyyy-MM-dd HH:mm:ss')
-                    $Dialog.Close()
-                })
+            $OkButton.Add_Click({ Invoke-DateTimeOkButtonClick $Calendar $HourCombo $MinuteCombo $SecondCombo $PickButton $Dialog })
 
             $CancelButton = New-BaseButton @{
                 Content  = 'Cancel'
                 Width    = 55
                 IsCancel = $true
             }
-            $CancelButton.Add_Click({
-                    $Dialog.Close()
-                })
+            $CancelButton.Add_Click({ Invoke-DateTimeCancelButtonClick $Dialog })
 
             $ButtonStack.Children.Add($NowButton)
             $ButtonStack.Children.Add($OkButton)
@@ -3326,23 +3472,24 @@ function New-ContentDateTime {
 function New-ContentChar {
     $CharBox = New-BaseTextBox @{
         Name      = $ContentElementName
-        Text      = $Content.FullName
+        Tag       = @{ TargetType = [char] }
         Margin    = 2
         MaxLength = 1
     }
     $CharBox.Add_TextChanged({
-            param($sender, $e)
-            $val = $sender.Text
+            param($s, $e)
+            $val = $s.Text
             if ([string]::IsNullOrWhiteSpace($val)) {
                 return
             }
 
             try {
                 $null = [char]::Parse($val)
-                $sender.ToolTip = $null
+                $s.ToolTip = $null
             }
             catch {
-                $sender.ToolTip = "Invalid value for $($sender.DataContext.FullName)"
+                $type = $s.Tag.TargetType
+                $s.ToolTip = "Invalid value for $($type.FullName)"
             }
         }
     )
@@ -3361,8 +3508,8 @@ function New-DragHandle {
         ToolTip           = $DragHandleToolTip
     }
     $DragHandle.Add_PreviewMouseLeftButtonDown({
-            param($sender, $e)
-            $DraggingItem = Find-ObjectWhere -Object ([ref]$sender) -FindWhere { $_.Name -eq "$($sender.Name.Replace("_$DragHandleNameSuffix", ''))" } -DigProperties 'Parent' -FindMax 1
+            param($s, $e)
+            $DraggingItem = Find-ObjectWhere -Object ([ref]$s) -FindWhere { $_.Name -eq "$($s.Name.Replace("_$DragHandleNameSuffix", ''))" } -DigProperties 'Parent' -FindMax 1
             [System.Windows.DragDrop]::DoDragDrop($DraggingItem, $DraggingItem.uid, [System.Windows.DragDropEffects]::Move) | Out-Null
         }
     )
@@ -3376,78 +3523,78 @@ function Add-DragDropLogic {
     $DragDropTarget.Value.Uid = [guid]::NewGuid().ToString()
 
     $DragDropTarget.Value.Add_DragEnter({
-            param($sender, $e)
+            param($s, $e)
             $e.Effects = [System.Windows.DragDropEffects]::Move
             $e.Handled = $true
 
-            #Write-Host "DragEnter: $($sender.Name) - $(find-title $sender)"
+            #Write-Host "DragEnter: $($s.Name) - $(find-title $s)"
 
             $SourceUid = $e.Data.GetData([String])
-            if (($SourceUid -and $SourceUid -eq $sender.Uid)) { return }
+            if (($SourceUid -and $SourceUid -eq $s.Uid)) { return }
 
-            $Array = $sender.Parent
+            $Array = $s.Parent
             $DraggingItemIndex = $Array.Children.IndexOf($DraggingItem)
             if ($DraggingItemIndex -eq -1) { return }
 
-            $SourceIndex = $Array.Children.IndexOf($sender)
-            $sender.BorderBrush = 'DodgerBlue'
+            $SourceIndex = $Array.Children.IndexOf($s)
+            $s.BorderBrush = 'DodgerBlue'
 
-            $Thickness = $Sender.BorderThickness.ToString()[0]
+            $Thickness = $s.BorderThickness.ToString()[0]
             if ($SourceIndex -gt $DraggingItemIndex) {
-                $sender.BorderThickness = "0,0,0,$Thickness"
+                $s.BorderThickness = "0,0,0,$Thickness"
             }
             else {
-                $sender.BorderThickness = "0,$Thickness,0,0"
+                $s.BorderThickness = "0,$Thickness,0,0"
             }
         })
     $DragDropTarget.Value.Add_DragLeave({
-            param($sender, $e)
+            param($s, $e)
             $e.Effects = [System.Windows.DragDropEffects]::Move
             $e.Handled = $true
 
             $SourceUid = $e.Data.GetData([String])
-            if (($SourceUid -and $SourceUid -eq $sender.Uid)) { return }
+            if (($SourceUid -and $SourceUid -eq $s.Uid)) { return }
 
-            $Array = $sender.Parent
+            $Array = $s.Parent
             $DraggingItemIndex = $Array.Children.IndexOf($DraggingItem)
             if ($DraggingItemIndex -eq -1) { return }
 
-            $sender.BorderBrush = 'Black'
-            $Thickness = $Sender.BorderThickness.ToString().Split(',') | Where-Object { $_ -ne 0 }
-            $sender.BorderThickness = $Thickness
+            $s.BorderBrush = 'Black'
+            $Thickness = $s.BorderThickness.ToString().Split(',') | Where-Object { $_ -ne 0 }
+            $s.BorderThickness = $Thickness
         })
     $DragDropTarget.Value.Add_DragOver({
-            param($sender, $e)
+            param($s, $e)
             $e.Effects = [System.Windows.DragDropEffects]::Move
             $e.Handled = $true
         })
     $DragDropTarget.Value.Add_Drop({
-            param($sender, $e)
+            param($s, $e)
             $e.Effects = [System.Windows.DragDropEffects]::Move
             $e.Handled = $true
 
             $SourceUid = $e.Data.GetData([String])
-            if (($SourceUid -and $SourceUid -eq $sender.Uid)) { return }
+            if (($SourceUid -and $SourceUid -eq $s.Uid)) { return }
 
-            $Array = $sender.Parent
+            $Array = $s.Parent
             $DraggingItemIndex = $Array.Children.IndexOf($DraggingItem)
             if ($DraggingItemIndex -eq -1) { return }
 
-            $sender.BorderBrush = 'Black'
-            $Thickness = $Sender.BorderThickness.ToString().Split(',') | Where-Object { $_ -ne 0 }
-            if ($Sender.Count -gt 1) {
+            $s.BorderBrush = 'Black'
+            $Thickness = $s.BorderThickness.ToString().Split(',') | Where-Object { $_ -ne 0 }
+            if ($s.Count -gt 1) {
                 Write-Host '{Add_Drop} pause, why more than 1 object here??' -ForegroundColor Red -BackgroundColor Yellow #0 Issue last seen, 10-3-2026.
             }
-            $sender.BorderThickness = $Thickness
+            $s.BorderThickness = $Thickness
 
-            $TargetIndex = $Array.Children.IndexOf($sender)
+            $TargetIndex = $Array.Children.IndexOf($s)
 
             $Array.Children.Remove($DraggingItem)
             $Array.Children.Insert($TargetIndex, $DraggingItem)
 
             if ([System.Windows.Forms.Control]::ModifierKeys -match 'Shift') {
-                $Array.Children.Remove($sender)
-                $Array.Children.Insert($DraggingItemIndex, $sender)
+                $Array.Children.Remove($s)
+                $Array.Children.Insert($DraggingItemIndex, $s)
             }
 
             Reset-ArrayIndexes ([ref]$Array)
@@ -3471,22 +3618,22 @@ function New-IndexBox {
         AllowDrop         = $false
     }
     $IndexBlock.Add_KeyDown({
-            param($sender, $e)
+            param($s, $e)
             if ($e.Key -eq 'Enter' -or $e.Key -eq 'Return') {
-                $IndexBlockParent = Find-ObjectWhere -Object ([ref]$sender) -FindWhere { $_.Name -eq "$($Sender.Name.Replace("_$IndexBoxNameSuffix", ''))" } -DigProperties 'Parent' -FindMax 1
+                $IndexBlockParent = Find-ObjectWhere -Object ([ref]$s) -FindWhere { $_.Name -eq "$($s.Name.Replace("_$IndexBoxNameSuffix", ''))" } -DigProperties 'Parent' -FindMax 1
                 $Content = Find-ObjectWhere -Object ([ref]$IndexBlockParent) -FindWhere { $_.Name -eq $ContentElementName } -FindMax 1
                 if ($Content) { $Content.Focus() }
             }
         }
     )
     $IndexBlock.Add_LostFocus({
-            param($sender, $e)
+            param($s, $e)
 
             # This section moves the item to the new index if the user has changed it.
-            $ArrayItem = Find-ObjectWhere -Object ([ref]$sender) -FindWhere { $_.Name -eq "$($sender.Name.Replace("_$IndexBoxNameSuffix", ''))" } -DigProperties 'Parent' -FindMax 1
+            $ArrayItem = Find-ObjectWhere -Object ([ref]$s) -FindWhere { $_.Name -eq "$($s.Name.Replace("_$IndexBoxNameSuffix", ''))" } -DigProperties 'Parent' -FindMax 1
             $Array = $ArrayItem.Parent
             $CurrentIndex = $Array.Children.IndexOf($ArrayItem)
-            $NewIndexText = $sender.Text
+            $NewIndexText = $s.Text
             if ($ArrayItem -and $Array) {
                 if ([int]::TryParse($NewIndexText, [ref]$null)) {
                     $NewIndex = [int]$NewIndexText
@@ -3494,7 +3641,7 @@ function New-IndexBox {
                     $TargetIndex = $NewIndex - 1
                     if ($TargetIndex -lt 0) { $TargetIndex = 0 }
                     if ($TargetIndex -ge $Array.Children.Count) { $TargetIndex = $Array.Children.Count - 1 }
-                    $Sender.Text = "$($TargetIndex + 1)"
+                    $s.Text = "$($TargetIndex + 1)"
 
                     if ($TargetIndex -ne $CurrentIndex -and $TargetIndex -ge 0) {
                         $Array.Children.Remove($ArrayItem)
@@ -3530,7 +3677,7 @@ function New-SearchBar {
     $SearchBarBorder.AddChild($SearchDock) | Out-Null
 
     # Close button (Dock Right)
-    $CloseBtn = New-BaseButton @{
+    $CloseButton = New-BaseButton @{
         Content           = '✖'
         Name              = "$WrapperName`_$SearchCloseButtonNameSuffix"
         Width             = 22
@@ -3545,11 +3692,11 @@ function New-SearchBar {
         VerticalAlignment = 'Center'
         Focusable         = $false
     }
-    [System.Windows.Controls.DockPanel]::SetDock($CloseBtn, 'Right')
-    $SearchDock.Children.Add($CloseBtn) | Out-Null
+    [System.Windows.Controls.DockPanel]::SetDock($CloseButton, 'Right')
+    $SearchDock.Children.Add($CloseButton) | Out-Null
 
     # Actions Menu Button & Dark-Themed Dropdown Popup (Dock Right)
-    $ActionsBtn = New-BaseButton @{
+    $ActionsButton = New-BaseButton @{
         Content           = $SearchActionsButtonHeader
         Name              = "$WrapperName`_$SearchActionsButtonNameSuffix"
         ToolTip           = $SearchActionsButtonToolTip
@@ -3565,15 +3712,15 @@ function New-SearchBar {
         VerticalAlignment = 'Center'
         Focusable         = $false
     }
-    [System.Windows.Controls.DockPanel]::SetDock($ActionsBtn, 'Right')
-    $SearchDock.Children.Add($ActionsBtn) | Out-Null
+    [System.Windows.Controls.DockPanel]::SetDock($ActionsButton, 'Right')
+    $SearchDock.Children.Add($ActionsButton) | Out-Null
 
     $ActionsPopup = New-Object System.Windows.Controls.Primitives.Popup
-    $ActionsPopup.PlacementTarget = $ActionsBtn
+    $ActionsPopup.PlacementTarget = $ActionsButton
     $ActionsPopup.Placement = [System.Windows.Controls.Primitives.PlacementMode]::Bottom
     $ActionsPopup.StaysOpen = $false
     $ActionsPopup.AllowsTransparency = $true
-    $ActionsBtn.Tag = $ActionsPopup
+    $ActionsButton.Tag = $ActionsPopup
 
     $PopupBorder = New-BaseBorder @{
         Background      = '#251F33'
@@ -3602,7 +3749,7 @@ function New-SearchBar {
         @{ Header = '🗑️  Delete Matches'; ToolTip = 'Delete matching array items'; Action = 'Delete'; Type = 'Batch' }
     )
 
-    foreach ($Item in $MenuItems) {
+    :MenuItems foreach ($Item in $MenuItems) {
         if ($Item.ContainsKey('Separator') -and $Item.Separator) {
             $Sep = New-BaseBorder @{
                 Height     = 1
@@ -3613,7 +3760,7 @@ function New-SearchBar {
             continue
         }
 
-        $ItemBtn = New-BaseButton @{
+        $ItemButton = New-BaseButton @{
             Content                    = $Item.Header
             ToolTip                    = $Item.ToolTip
             Foreground                 = '#EDEAFA'
@@ -3626,12 +3773,12 @@ function New-SearchBar {
             Cursor                     = 'Hand'
         }
 
-        $ItemBtn.Add_MouseEnter({
+        $ItemButton.Add_MouseEnter({
                 param($s, $e)
                 $s.Background = '#504368'
                 $s.Foreground = '#FFFFFF'
             })
-        $ItemBtn.Add_MouseLeave({
+        $ItemButton.Add_MouseLeave({
                 param($s, $e)
                 $s.Background = 'Transparent'
                 $s.Foreground = '#EDEAFA'
@@ -3639,32 +3786,16 @@ function New-SearchBar {
 
         $ActionName = $Item.Action
         $ActionType = $Item.Type
-        $TargetBtn = $ActionsBtn
-        $ItemBtn.Add_Click({
-                param($s, $e)
-                if ($TargetBtn.Tag) {
-                    $TargetBtn.Tag.IsOpen = $false
-                }
-                if ($ActionType -eq 'Filter') {
-                    Invoke-SearchFilterAction -ChildElement $TargetBtn -Action $ActionName
-                }
-                else {
-                    Invoke-SearchBatchAction -ChildElement $TargetBtn -Action $ActionName
-                }
-            }.GetNewClosure())
+        $TargetButton = $ActionsButton
+        $ItemButton.Add_Click(({ param($s, $e) Invoke-SearchItemButtonClick $s $e $TargetButton $ActionType $ActionName }).GetNewClosure())
 
-        $PopupStack.Children.Add($ItemBtn) | Out-Null
-    }
+        $PopupStack.Children.Add($ItemButton) | Out-Null
+    } # MenuItems foreach
 
-    $ActionsBtn.Add_Click({
-            param($sender, $e)
-            if ($sender.Tag) {
-                $sender.Tag.IsOpen = -not $sender.Tag.IsOpen
-            }
-        })
+    $ActionsButton.Add_Click({ param($s, $e) Invoke-SearchActionsButtonClick $s $e })
 
     # Next button (Dock Right)
-    $NextBtn = New-BaseButton @{
+    $NextButton = New-BaseButton @{
         Content           = '▼'
         Name              = "$WrapperName`_$SearchNextButtonNameSuffix"
         Width             = 20
@@ -3679,11 +3810,11 @@ function New-SearchBar {
         VerticalAlignment = 'Center'
         Focusable         = $false
     }
-    [System.Windows.Controls.DockPanel]::SetDock($NextBtn, 'Right')
-    $SearchDock.Children.Add($NextBtn) | Out-Null
+    [System.Windows.Controls.DockPanel]::SetDock($NextButton, 'Right')
+    $SearchDock.Children.Add($NextButton) | Out-Null
 
     # Prev button (Dock Right)
-    $PrevBtn = New-BaseButton @{
+    $PrevButton = New-BaseButton @{
         Content           = '▲'
         Name              = "$WrapperName`_$SearchPrevButtonNameSuffix"
         Width             = 20
@@ -3698,11 +3829,11 @@ function New-SearchBar {
         VerticalAlignment = 'Center'
         Focusable         = $false
     }
-    [System.Windows.Controls.DockPanel]::SetDock($PrevBtn, 'Right')
-    $SearchDock.Children.Add($PrevBtn) | Out-Null
+    [System.Windows.Controls.DockPanel]::SetDock($PrevButton, 'Right')
+    $SearchDock.Children.Add($PrevButton) | Out-Null
 
     # Regex toggle button (Dock Right)
-    $RegexBtn = New-BaseButton @{
+    $RegexButton = New-BaseButton @{
         Content           = $SearchRegexButtonHeader
         Name              = "$WrapperName`_$SearchRegexButtonNameSuffix"
         Width             = 24
@@ -3714,14 +3845,14 @@ function New-SearchBar {
         BorderBrush       = '#8879A1'
         BorderThickness   = 1
         Cursor            = 'Hand'
-        ToolTip           = "Regex Mode: ON (Alt+R to toggle)"
+        ToolTip           = $SearchRegexButtonToolTipEnabled
         VerticalAlignment = 'Center'
         Focusable         = $false
         FontWeight        = 'Bold'
         FontSize          = 11
     }
-    [System.Windows.Controls.DockPanel]::SetDock($RegexBtn, 'Right')
-    $SearchDock.Children.Add($RegexBtn) | Out-Null
+    [System.Windows.Controls.DockPanel]::SetDock($RegexButton, 'Right')
+    $SearchDock.Children.Add($RegexButton) | Out-Null
 
     # Match Counter (Dock Right)
     $MatchCount = New-BaseTextBlock @{
@@ -3771,88 +3902,52 @@ function New-SearchBar {
     }
 
     $SearchInput.Add_TextChanged({
-            param($sender, $e)
-            Invoke-SearchExecution -SearchBox $sender
+            param($s, $e)
+            Invoke-SearchExecution -SearchBox $s
         })
 
     $SearchInput.Add_KeyDown({
-            param($sender, $e)
+            param($s, $e)
             if ($e.Key -eq 'Escape') {
-                Close-SearchBar -ChildElement $sender
+                Close-SearchBar -ChildElement $s
                 $e.Handled = $true
             }
             elseif ($e.Key -eq 'Enter' -or $e.Key -eq 'Return') {
-                $SearchBar = Find-ObjectWhere -Object ([ref]$sender) -FindWhere { $_.Name -like "*$SearchBarNameSuffix" } -DigProperties 'Parent' -FindMax 1
+                $SearchBar = Find-ObjectWhere -Object ([ref]$s) -FindWhere { $_.Name -like "*$SearchBarNameSuffix" } -DigProperties 'Parent' -FindMax 1
                 if (-not $SearchBar) { $SearchBar = $SearchBarBorder }
                 $IsShift = ([System.Windows.Forms.Control]::ModifierKeys -match 'Shift') -or ([System.Windows.Input.Keyboard]::Modifiers -match 'Shift')
                 $HasMatches = $SearchBar -and $SearchBar.Tag -and $SearchBar.Tag.Matches -and ($SearchBar.Tag.Matches.Count -gt 0)
-                $HasSearchedCurrent = $HasMatches -and ($SearchBar.Tag.Query -eq $sender.Text) -and ($SearchBar.Tag.CurrentIndex -ge 0)
+                $HasSearchedCurrent = $HasMatches -and ($SearchBar.Tag.Query -eq $s.Text) -and ($SearchBar.Tag.CurrentIndex -ge 0)
 
                 if (-not $HasSearchedCurrent) {
-                    Invoke-SearchExecution -SearchBox $sender
+                    Invoke-SearchExecution -SearchBox $s
                     if ($IsShift) {
-                        Step-SearchMatch -ChildElement $sender -Direction 'Prev'
+                        Step-SearchMatch -ChildElement $s -Direction 'Prev'
                     }
                 }
                 else {
                     if ($IsShift) {
-                        Step-SearchMatch -ChildElement $sender -Direction 'Prev'
+                        Step-SearchMatch -ChildElement $s -Direction 'Prev'
                     }
                     else {
-                        Step-SearchMatch -ChildElement $sender -Direction 'Next'
+                        Step-SearchMatch -ChildElement $s -Direction 'Next'
                     }
                 }
                 $e.Handled = $true
             }
             elseif ($e.Key -eq 'R' -and ([System.Windows.Forms.Control]::ModifierKeys -match 'Alt' -or [System.Windows.Input.Keyboard]::Modifiers -match 'Alt')) {
-                $RBtn = Find-ObjectWhere -Object ([ref]$sender) -FindWhere { $_.Name -like "*$SearchRegexButtonNameSuffix" } -DigProperties 'Parent' -FindMax 1
-                if ($RBtn) {
-                    $RBtn.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.Button]::ClickEvent)))
+                $RButton = Find-ObjectWhere -Object ([ref]$s) -FindWhere { $_.Name -like "*$SearchRegexButtonNameSuffix" } -DigProperties 'Parent' -FindMax 1
+                if ($RButton) {
+                    $RButton.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.Button]::ClickEvent)))
                     $e.Handled = $true
                 }
             }
         })
 
-    $RegexBtn.Add_Click({
-            param($sender, $e)
-            $SearchBarBorder = Find-ObjectWhere -Object ([ref]$sender) -FindWhere { $_.Name -like "*$SearchBarNameSuffix" } -DigProperties 'Parent' -FindMax 1
-            if (-not $SearchBarBorder) { return }
-
-            $CurrentUseRegex = if ($SearchBarBorder.Tag.ContainsKey('UseRegex')) { $SearchBarBorder.Tag.UseRegex } else { $true }
-            $NewUseRegex = -not $CurrentUseRegex
-            $SearchBarBorder.Tag.UseRegex = $NewUseRegex
-
-            if ($NewUseRegex) {
-                $sender.Background = '#504368'
-                $sender.BorderBrush = '#8879A1'
-                $sender.ToolTip = "Regex Mode: ON (Alt+R to toggle)"
-            }
-            else {
-                $sender.Background = 'Transparent'
-                $sender.BorderBrush = 'Transparent'
-                $sender.ToolTip = "Regex Mode: OFF (Literal String - Alt+R to toggle)"
-            }
-
-            $SearchInput = Find-ObjectWhere -Object ([ref]$SearchBarBorder) -FindWhere { $_.Name -like "*$SearchInputNameSuffix" } -FindMax 1
-            if ($SearchInput) {
-                Invoke-SearchExecution -SearchBox $SearchInput
-            }
-        })
-
-    $NextBtn.Add_Click({
-            param($sender, $e)
-            Step-SearchMatch -ChildElement $sender -Direction 'Next'
-        })
-
-    $PrevBtn.Add_Click({
-            param($sender, $e)
-            Step-SearchMatch -ChildElement $sender -Direction 'Prev'
-        })
-
-    $CloseBtn.Add_Click({
-            param($sender, $e)
-            Close-SearchBar -ChildElement $sender
-        })
+    $RegexButton.Add_Click({ param($s, $e) Invoke-SearchRegexButtonClick $s $e })
+    $NextButton.Add_Click({ param($s, $e) Invoke-SearchStepButtonClick $s $e -Direction 'Next' })
+    $PrevButton.Add_Click({ param($s, $e) Invoke-SearchStepButtonClick $s $e -Direction 'Prev' })
+    $CloseButton.Add_Click({ param($s, $e) Invoke-SearchCloseButtonClick $s $e })
 
     return $SearchBarBorder
 } # function New-SearchBar
@@ -3861,199 +3956,299 @@ function New-SearchBar {
 
 #region #3 Button Elements
 
-function New-MinMaxButton {
-    $MinMaxButton = New-BaseMenuItem @{
-        Name    = $MinMaxButtonName
-        Header  = $MinMaxButtonMinedIcon
-        ToolTip = $MinMaxButtonMinedToolTip
+function Invoke-SearchRegexButtonClick {
+    param($s, $e)
+    $SearchBarBorder = Find-ObjectWhere -Object ([ref]$s) -FindWhere { $_.Name -like "*$SearchBarNameSuffix" } -DigProperties 'Parent' -FindMax 1
+    if (-not $SearchBarBorder) { return }
+
+    $CurrentUseRegex = if ($SearchBarBorder.Tag.ContainsKey('UseRegex')) { $SearchBarBorder.Tag.UseRegex } else { $true }
+    $NewUseRegex = -not $CurrentUseRegex
+    $SearchBarBorder.Tag.UseRegex = $NewUseRegex
+
+    if ($NewUseRegex) {
+        $s.Background = '#504368'
+        $s.BorderBrush = '#8879A1'
+        $s.ToolTip = $SearchRegexButtonToolTipEnabled
     }
-    $MinMaxButton.Add_Click({
-            param($sender, $e)
-            if ([System.Windows.Forms.Control]::ModifierKeys -match 'Shift') {
-                $AlternateBehavior = $true
-            }
-            $ChangedChild = $false
+    else {
+        $s.Background = 'Transparent'
+        $s.BorderBrush = 'Transparent'
+        $s.ToolTip = $SearchRegexButtonToolTipDisabled
+    }
 
-            $ContentHeaderBorder = Find-ObjectWhere -Object ([ref]$sender) -FindWhere { $_.Name -eq $ContentHeaderBorderName } -DigProperties 'Parent' -FindMax 1
-            $ContentSlotElement = Find-ObjectWhere -Object ([ref]$ContentHeaderBorder) -FindWhere { $_.Name -eq $ContentSlotElementName } -DepthMax 1 -DepthWhere { $_.Name -eq $ContentSlotElementName }
-            if ($AlternateBehavior) {
-                [array]$MinMaxButtons = Find-ObjectWhere -Object ([ref]$ContentSlotElement) -FindWhere { $_.Name -eq $MinMaxButtonName } -DepthMax 1 -DepthWhere { $_.Name -eq $ContentSlotElementName }
-                :MinMaxButtons foreach ($MinMaxButton in $MinMaxButtons) {
-                    if ($MinMaxButton.Header -eq $sender.Header) { $ChangedChild = $true }
+    $SearchInput = Find-ObjectWhere -Object ([ref]$SearchBarBorder) -FindWhere { $_.Name -like "*$SearchInputNameSuffix" } -FindMax 1
+    if ($SearchInput) {
+        Invoke-SearchExecution -SearchBox $SearchInput
+    }
+} # function Invoke-SearchRegexButtonClick
 
-                    $ButtonsContentHeaderBorder = Find-ObjectWhere -Object ([ref]$MinMaxButton) -FindWhere { $_.Name -eq $ContentHeaderBorderName } -DigProperties 'Parent' -FindMax 1
-                    $ButtonsContentSlotElement = Find-ObjectWhere -Object ([ref]$ButtonsContentHeaderBorder) -FindWhere { $_.Name -eq $ContentSlotElementName } -FindMax 1
+function Invoke-SearchStepButtonClick {
+    param(
+        $s,
+        $e,
+        [ValidateSet('Next', 'Prev')][string]$Direction = 'Next'
+    )
+    Step-SearchMatch -ChildElement $s -Direction $Direction
+} # function Invoke-SearchStepButtonClick
 
-                    switch ($sender.Header) {
-                        $MinMaxButtonMinedIcon {
-                            $ButtonsContentSlotElement.Visibility = 'Collapsed'
-                            $MinMaxButton.Header = $MinMaxButtonMaxedIcon
-                            $MinMaxButton.Tooltip = $MinMaxButtonMaxedToolTip
-                            $ChildSearchBar = Find-ObjectWhere -Object ([ref]$ButtonsContentHeaderBorder) -FindWhere { $_.Name -like "*$SearchBarNameSuffix" } -FindMax 1
-                            if ($ChildSearchBar -and $ChildSearchBar.Visibility -eq 'Visible') {
-                                Close-SearchBar -ChildElement $ChildSearchBar
-                            }
-                        }
-                        $MinMaxButtonMaxedIcon {
-                            $ButtonsContentSlotElement.Visibility = 'Visible'
-                            $MinMaxButton.Header = $MinMaxButtonMinedIcon
-                            $MinMaxButton.Tooltip = $MinMaxButtonMinedToolTip
-                        }
-                    }
-                } # MinMaxButtons
-            }
+function Invoke-SearchCloseButtonClick {
+    param($s, $e)
+    Close-SearchBar -ChildElement $s
+} # function Invoke-SearchCloseButtonClick
 
-            if (!$AlternateBehavior -or ($AlternateBehavior -and (-not $ChangedChild -or $sender.Header -eq $MinMaxButtonMaxedIcon))) {
-                switch ($sender.Header) {
-                    $MinMaxButtonMinedIcon {
-                        $ContentSlotElement.Visibility = 'Collapsed'
-                        $sender.Header = $MinMaxButtonMaxedIcon
-                        $sender.Tooltip = $MinMaxButtonMaxedToolTip
-                        $SearchBar = Find-ObjectWhere -Object ([ref]$ContentHeaderBorder) -FindWhere { $_.Name -like "*$SearchBarNameSuffix" } -FindMax 1
-                        if ($SearchBar -and $SearchBar.Visibility -eq 'Visible') {
-                            Close-SearchBar -ChildElement $SearchBar
-                        }
-                    }
-                    $MinMaxButtonMaxedIcon {
-                        $ContentSlotElement.Visibility = 'Visible'
-                        $sender.Tooltip = $MinMaxButtonMinedToolTip
-                        $sender.Header = $MinMaxButtonMinedIcon
+function Invoke-MinMaxButtonClick {
+    param($s, $e)
+    if ([System.Windows.Forms.Control]::ModifierKeys -match 'Shift') {
+        $AlternateBehavior = $true
+    }
+    $ChangedChild = $false
+
+    $ContentHeaderBorder = Find-ObjectWhere -Object ([ref]$s) -FindWhere { $_.Name -eq $ContentHeaderBorderName } -DigProperties 'Parent' -FindMax 1
+    $ContentSlotElement = Find-ObjectWhere -Object ([ref]$ContentHeaderBorder) -FindWhere { $_.Name -eq $ContentSlotElementName } -DepthMax 1 -DepthWhere { $_.Name -eq $ContentSlotElementName }
+    if ($AlternateBehavior) {
+        [array]$MinMaxButtons = Find-ObjectWhere -Object ([ref]$ContentSlotElement) -FindWhere { $_.Name -eq $MinMaxButtonName } -DepthMax 1 -DepthWhere { $_.Name -eq $ContentSlotElementName }
+        :MinMaxButtons foreach ($MinMaxButton in $MinMaxButtons) {
+            if ($MinMaxButton.Header -eq $s.Header) { $ChangedChild = $true }
+
+            $ButtonsContentHeaderBorder = Find-ObjectWhere -Object ([ref]$MinMaxButton) -FindWhere { $_.Name -eq $ContentHeaderBorderName } -DigProperties 'Parent' -FindMax 1
+            $ButtonsContentSlotElement = Find-ObjectWhere -Object ([ref]$ButtonsContentHeaderBorder) -FindWhere { $_.Name -eq $ContentSlotElementName } -FindMax 1
+
+            switch ($s.Header) {
+                $MinMaxButtonMinedIcon {
+                    $ButtonsContentSlotElement.Visibility = 'Collapsed'
+                    $MinMaxButton.Header = $MinMaxButtonMaxedIcon
+                    $MinMaxButton.Tooltip = $MinMaxButtonMaxedToolTip
+                    $ChildSearchBar = Find-ObjectWhere -Object ([ref]$ButtonsContentHeaderBorder) -FindWhere { $_.Name -like "*$SearchBarNameSuffix" } -FindMax 1
+                    if ($ChildSearchBar -and $ChildSearchBar.Visibility -eq 'Visible') {
+                        Close-SearchBar -ChildElement $ChildSearchBar
                     }
                 }
+                $MinMaxButtonMaxedIcon {
+                    $ButtonsContentSlotElement.Visibility = 'Visible'
+                    $MinMaxButton.Header = $MinMaxButtonMinedIcon
+                    $MinMaxButton.Tooltip = $MinMaxButtonMinedToolTip
+                }
+            }
+        } # MinMaxButtons
+    }
+
+    if (!$AlternateBehavior -or ($AlternateBehavior -and (-not $ChangedChild -or $s.Header -eq $MinMaxButtonMaxedIcon))) {
+        switch ($s.Header) {
+            $MinMaxButtonMinedIcon {
+                $ContentSlotElement.Visibility = 'Collapsed'
+                $s.Header = $MinMaxButtonMaxedIcon
+                $s.Tooltip = $MinMaxButtonMaxedToolTip
+                $SearchBar = Find-ObjectWhere -Object ([ref]$ContentHeaderBorder) -FindWhere { $_.Name -like "*$SearchBarNameSuffix" } -FindMax 1
+                if ($SearchBar -and $SearchBar.Visibility -eq 'Visible') {
+                    Close-SearchBar -ChildElement $SearchBar
+                }
+            }
+            $MinMaxButtonMaxedIcon {
+                $ContentSlotElement.Visibility = 'Visible'
+                $s.Tooltip = $MinMaxButtonMinedToolTip
+                $s.Header = $MinMaxButtonMinedIcon
             }
         }
-    )
-    return $MinMaxButton
-} # function New-MinMaxButton
-
-function New-AddArrayItemButton {
-    param( [type]$Type )
-    $AddArrayItemButton = New-BaseMenuItem @{
-        Name   = $AddArrayItemButtonName
-        Tag    = $Type.FullName
-        Header = $AddArrayItemButtonIcon
     }
-    $AddArrayItemButton.Add_Click({
-            param($sender, $e)
-            $ContentHeaderBorder = Find-ObjectWhere -Object ([ref]$sender) -FindWhere { $_.Name -eq $ContentHeaderBorderName } -DigProperties 'Parent' -FindMax 1
-            if ($ContentHeaderBorder) {
-                $Color = '#' + $ContentHeaderBorder.Background.Color.ToString().Substring(3)
-                $IndexOfColorSequence = $ColorSequence.IndexOf($Color)
+} # function Invoke-MinMaxButtonClick
 
-                $ContentSlotElement = Find-ObjectWhere -Object ([ref]$ContentHeaderBorder) -FindWhere { $_.Name -eq $ContentSlotElementName } -FindMax 1
+function Invoke-AddArrayItemButtonClick {
+    param($s, $e)
+    $ContentHeaderBorder = Find-ObjectWhere -Object ([ref]$s) -FindWhere { $_.Name -eq $ContentHeaderBorderName } -DigProperties 'Parent' -FindMax 1
+    if ($ContentHeaderBorder) {
+        $Color = '#' + $ContentHeaderBorder.Background.Color.ToString().Substring(3)
+        $IndexOfColorSequence = $ColorSequence.IndexOf($Color)
 
-                $NewItem = New-TypeContent -WrapperType 'Border' -Type $sender.Tag.TrimEnd('[]') -ArrayType 'ArrayItem' -Index $ContentSlotElement.Children.Count -Depth ($IndexOfColorSequence + 1)
-                Add-ContentToWrapper ([ref]$ContentHeaderBorder) ([ref]$NewItem)
-            }
-        })
+        $ContentSlotElement = Find-ObjectWhere -Object ([ref]$ContentHeaderBorder) -FindWhere { $_.Name -eq $ContentSlotElementName } -FindMax 1
 
-    return $AddArrayItemButton
-} # function New-AddArrayItemButton
+        $NewItem = New-TypeContent -WrapperType 'Border' -Type $s.Tag.TrimEnd('[]') -ArrayType 'ArrayItem' -Index $ContentSlotElement.Children.Count -Depth ($IndexOfColorSequence + 1)
+        Add-ContentToWrapper ([ref]$ContentHeaderBorder) ([ref]$NewItem)
 
-function New-QuickSetMenuItem {
-    param(
-        [string]$ActionFrom = $ContentHeaderBorderName
-    )
+        $SaveItem = Find-ObjectWhere -Object ([ref]$ContentHeaderBorder) -FindWhere { $_.Name -like "*_$QuickSetSaveButtonNameSuffix" } -FindMax 1
+        if ($SaveItem -is [array]) { $SaveItem = $SaveItem[0] }
+        if ($SaveItem) {
+            $SaveItem.IsEnabled = $true
+        }
+    }
+} # function Invoke-AddArrayItemButtonClick
 
-    $QuickSetMenu = New-BaseMenuItem @{
-        Name          = "$ActionFrom`_$QuickSetMenuNameSuffix"
-        Header        = $QuickSetHeader
-        Icon          = $QuickSetIcon
-        FlowDirection = 'LeftToRight'
+function Invoke-QuickSetRefreshButtonClick {
+    param($s, $e)
+    $QSMenu = Get-QuickSetMenuFromSender $s
+    $TargetWrapper = Get-QuickSetWrapper $s
+    if ($TargetWrapper -and $QSMenu) {
+        Update-QuickSetSubMenu -QuickSetMenuItem $QSMenu -Wrapper $TargetWrapper
+    }
+} # function Invoke-QuickSetRefreshButtonClick
+
+function Invoke-QuickSetSaveButtonClick {
+    param($s, $e)
+    $QSMenu = Get-QuickSetMenuFromSender $s
+    $TargetWrapper = Get-QuickSetWrapper $s
+    if (-not $TargetWrapper) { return }
+
+    $Type = Get-WrapperTargetType -Wrapper $TargetWrapper
+    $TypeDir = Get-QuickSetTypeDirectory -Type $Type
+
+    $ActiveName = if ($TargetWrapper.Tag -is [hashtable] -and $TargetWrapper.Tag.ContainsKey('ActiveQuickSet') -and -not [string]::IsNullOrWhiteSpace($TargetWrapper.Tag.ActiveQuickSet)) {
+        $TargetWrapper.Tag.ActiveQuickSet
+    }
+    else {
+        Get-WrapperDisplayName -Wrapper $TargetWrapper
     }
 
-    $SetMenu = New-BaseMenuItem @{
-        Name          = "$ActionFrom`_QuickSet_Set"
-        Header        = 'Set'
-        Icon          = '📁'
-        FlowDirection = 'LeftToRight'
+    $TypeNameDisplay = if ($Type -is [type]) { $Type.Name } else { $Type.ToString().Split('.')[-1] }
+    $NewName = Show-QuickSetInputDialog -Title "Save QuickSet As" -Prompt "Enter QuickSet name for $($TypeNameDisplay):" -DefaultValue $ActiveName
+    if ([string]::IsNullOrWhiteSpace($NewName)) { return }
+    $NewName = ($NewName.Trim() -replace '[\\/:*?"<>|]', '_')
+
+    $FilePath = Join-Path $TypeDir "$NewName.json"
+    if (Test-Path -LiteralPath $FilePath) {
+        $Confirm = Show-QuickSetConfirmDialog -Title "Overwrite QuickSet" -Message "A QuickSet named '$NewName' already exists. Overwrite it?"
+        if (-not $Confirm) { return }
     }
-    $QuickSetMenu.Items.Add($SetMenu) | Out-Null
 
-    $RefreshBtn = New-BaseMenuItem @{
-        Name   = "$ActionFrom`_QuickSet_Refresh"
-        Header = 'Refresh'
-        Icon   = '🔄'
+    Set-WrapperDisplayName -Wrapper $TargetWrapper -DisplayName $NewName
+
+    $CurrentValue = Get-WrapperQuickSetValue -Wrapper $TargetWrapper
+    $JsonText = ConvertTo-Json -InputObject $CurrentValue -Depth 20
+    Set-Content -LiteralPath $FilePath -Value $JsonText -Encoding UTF8
+
+    if ($QSMenu) {
+        Set-QuickSetActiveButtonsState -QuickSetMenuItem $QSMenu -IsEnabled $true
+        Update-QuickSetSubMenu -QuickSetMenuItem $QSMenu -Wrapper $TargetWrapper
     }
-    $QuickSetMenu.Items.Add($RefreshBtn) | Out-Null
+} # function Invoke-QuickSetSaveButtonClick
 
-    $SaveBtn = New-BaseMenuItem @{
-        Name   = "$ActionFrom`_QuickSet_Save"
-        Header = 'Save'
-        Icon   = '💾'
+function Invoke-QuickSetRenameButtonClick {
+    param($s, $e)
+    $QSMenu = Get-QuickSetMenuFromSender $s
+    $TargetWrapper = Get-QuickSetWrapper $s
+    if (-not $TargetWrapper) { return }
+
+    $ActiveName = if ($TargetWrapper.Tag -is [hashtable] -and $TargetWrapper.Tag.ContainsKey('ActiveQuickSet')) {
+        $TargetWrapper.Tag.ActiveQuickSet
     }
-    $QuickSetMenu.Items.Add($SaveBtn) | Out-Null
+    else { $null }
 
-    $RenameBtn = New-BaseMenuItem @{
-        Name   = "$ActionFrom`_QuickSet_Rename"
-        Header = 'Rename'
-        Icon   = '✏️'
+    if ([string]::IsNullOrWhiteSpace($ActiveName)) {
+        [System.Windows.MessageBox]::Show("Please select a QuickSet first to rename.", "QuickSet - Rename", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information) | Out-Null
+        return
     }
-    $QuickSetMenu.Items.Add($RenameBtn) | Out-Null
 
-    $CopyBtn = New-BaseMenuItem @{
-        Name   = "$ActionFrom`_QuickSet_Copy"
-        Header = 'Copy'
-        Icon   = '📋'
+    $Type = Get-WrapperTargetType -Wrapper $TargetWrapper
+    $TypeDir = Get-QuickSetTypeDirectory -Type $Type
+    $OldFile = Join-Path $TypeDir "$ActiveName.json"
+    if (-not (Test-Path -LiteralPath $OldFile)) {
+        [System.Windows.MessageBox]::Show("QuickSet file not found on disk: $ActiveName.json", "QuickSet", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Warning) | Out-Null
+        return
     }
-    $QuickSetMenu.Items.Add($CopyBtn) | Out-Null
 
-    $OverwriteBtn = New-BaseMenuItem @{
-        Name   = "$ActionFrom`_QuickSet_Overwrite"
-        Header = 'Overwrite'
-        Icon   = '⚠️'
+    $NewName = Show-QuickSetInputDialog -Title "Rename QuickSet" -Prompt "Enter new name for '$ActiveName':" -DefaultValue $ActiveName
+    if ([string]::IsNullOrWhiteSpace($NewName) -or $NewName.Trim() -eq $ActiveName) { return }
+    $NewName = ($NewName.Trim() -replace '[\\/:*?"<>|]', '_')
+    $NewFile = Join-Path $TypeDir "$NewName.json"
+
+    if (Test-Path -LiteralPath $NewFile) {
+        $Overwrite = Show-QuickSetConfirmDialog -Title "Overwrite QuickSet" -Message "A QuickSet named '$NewName' already exists. Overwrite it?"
+        if (-not $Overwrite) { return }
     }
-    $QuickSetMenu.Items.Add($OverwriteBtn) | Out-Null
 
-    $DeleteBtn = New-BaseMenuItem @{
-        Name   = "$ActionFrom`_QuickSet_Delete"
-        Header = 'Delete'
-        Icon   = '🗑'
+    Move-Item -LiteralPath $OldFile -Destination $NewFile -Force
+    Set-WrapperDisplayName -Wrapper $TargetWrapper -DisplayName $NewName
+
+    $CurrentValue = Get-WrapperQuickSetValue -Wrapper $TargetWrapper
+    $JsonText = ConvertTo-Json -InputObject $CurrentValue -Depth 20
+    Set-Content -LiteralPath $NewFile -Value $JsonText -Encoding UTF8
+
+    if ($QSMenu) {
+        Update-QuickSetSubMenu -QuickSetMenuItem $QSMenu -Wrapper $TargetWrapper
     }
-    $QuickSetMenu.Items.Add($DeleteBtn) | Out-Null
+} # function Invoke-QuickSetRenameButtonClick
 
-    $QuickSetMenu.Add_SubmenuOpened({
-            param($s, $e)
-            if ($e.Source -ne $s) { return }
-            $e.Handled = $true
-            $QSMenu = Get-QuickSetMenuFromSender -Sender $s
-            $TargetWrapper = Get-QuickSetWrapper -Sender $s
-            if ($TargetWrapper -and $QSMenu) {
-                Update-QuickSetSubMenu -QuickSetMenuItem $QSMenu -Wrapper $TargetWrapper
-            }
-        })
+function Invoke-QuickSetOverwriteButtonClick {
+    param($s, $e)
+    $QSMenu = Get-QuickSetMenuFromSender $s
+    $TargetWrapper = Get-QuickSetWrapper $s
+    if (-not $TargetWrapper) { return }
 
-    $RefreshBtn.Add_Click({
-            param($s, $e)
-            $QSMenu = Get-QuickSetMenuFromSender -Sender $s
-            $TargetWrapper = Get-QuickSetWrapper -Sender $s
-            if ($TargetWrapper -and $QSMenu) {
-                Update-QuickSetSubMenu -QuickSetMenuItem $QSMenu -Wrapper $TargetWrapper
-            }
-        })
+    $ActiveName = if ($TargetWrapper.Tag -is [hashtable] -and $TargetWrapper.Tag.ContainsKey('ActiveQuickSet')) {
+        $TargetWrapper.Tag.ActiveQuickSet
+    }
+    else { $null }
 
-    $SaveBtn.Add_Click({
-            param($s, $e)
-            $QSMenu = Get-QuickSetMenuFromSender -Sender $s
-            $TargetWrapper = Get-QuickSetWrapper -Sender $s
-            if (-not $TargetWrapper) { return }
+    if ([string]::IsNullOrWhiteSpace($ActiveName)) {
+        [System.Windows.MessageBox]::Show("Please select a QuickSet first to overwrite.", "QuickSet - Overwrite", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information) | Out-Null
+        return
+    }
 
+    $Confirm = Show-QuickSetConfirmDialog -Title "Overwrite QuickSet" -Message "Are you sure you want to overwrite '$ActiveName' with current values?"
+    if (-not $Confirm) { return }
+
+    $Type = Get-WrapperTargetType -Wrapper $TargetWrapper
+    $TypeDir = Get-QuickSetTypeDirectory -Type $Type
+    $FilePath = Join-Path $TypeDir "$ActiveName.json"
+
+    Set-WrapperDisplayName -Wrapper $TargetWrapper -DisplayName $ActiveName
+
+    $CurrentValue = Get-WrapperQuickSetValue -Wrapper $TargetWrapper
+    $JsonText = ConvertTo-Json -InputObject $CurrentValue -Depth 20
+    Set-Content -LiteralPath $FilePath -Value $JsonText -Encoding UTF8
+
+    if ($QSMenu) {
+        Update-QuickSetSubMenu -QuickSetMenuItem $QSMenu -Wrapper $TargetWrapper
+    }
+} # function Invoke-QuickSetOverwriteButtonClick
+
+function Invoke-QuickSetDeleteButtonClick {
+    param($s, $e)
+    $QSMenu = Get-QuickSetMenuFromSender $s
+    $TargetWrapper = Get-QuickSetWrapper $s
+    if (-not $TargetWrapper) { return }
+
+    $ActiveName = if ($TargetWrapper.Tag -is [hashtable] -and $TargetWrapper.Tag.ContainsKey('ActiveQuickSet')) {
+        $TargetWrapper.Tag.ActiveQuickSet
+    }
+    else { $null }
+
+    if ([string]::IsNullOrWhiteSpace($ActiveName)) {
+        [System.Windows.MessageBox]::Show("Please select a QuickSet first to delete.", "QuickSet - Delete", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information) | Out-Null
+        return
+    }
+
+    $Confirm = Show-QuickSetConfirmDialog -Title "Delete QuickSet" -Message "Are you sure you want to delete QuickSet '$ActiveName'?"
+    if (-not $Confirm) { return }
+
+    $Type = Get-WrapperTargetType -Wrapper $TargetWrapper
+    $TypeDir = Get-QuickSetTypeDirectory -Type $Type
+    $FilePath = Join-Path $TypeDir "$ActiveName.json"
+    if (Test-Path -LiteralPath $FilePath) {
+        Remove-Item -LiteralPath $FilePath -Force -ErrorAction SilentlyContinue
+    }
+
+    $TargetWrapper.Tag.ActiveQuickSet = $null
+    Update-QuickSetBadge -Wrapper $TargetWrapper -DisplayName $null
+    if ($QSMenu) {
+        Set-QuickSetActiveButtonsState -QuickSetMenuItem $QSMenu -IsEnabled $false
+        Update-QuickSetSubMenu -QuickSetMenuItem $QSMenu -Wrapper $TargetWrapper
+    }
+} # function Invoke-QuickSetDeleteButtonClick
+
+function Invoke-QuickSetClearButtonClick {
+    param($s, $e)
+    try {
+        $QSMenu = Get-QuickSetMenuFromSender $s
+        $TargetWrapper = Get-QuickSetWrapper $s
+        if (-not $TargetWrapper) { return }
+
+        $ActiveName = if ($TargetWrapper.Tag -is [hashtable] -and $TargetWrapper.Tag.ContainsKey('ActiveQuickSet') -and -not [string]::IsNullOrWhiteSpace($TargetWrapper.Tag.ActiveQuickSet)) {
+            $TargetWrapper.Tag.ActiveQuickSet
+        }
+        else { $null }
+
+        if (-not [string]::IsNullOrWhiteSpace($ActiveName)) {
             $Type = Get-WrapperTargetType -Wrapper $TargetWrapper
             $TypeDir = Get-QuickSetTypeDirectory -Type $Type
-
-            $ActiveName = if ($TargetWrapper.Tag -is [hashtable] -and $TargetWrapper.Tag.ContainsKey('ActiveQuickSet')) {
-                $TargetWrapper.Tag.ActiveQuickSet
-            }
-            else { $null }
-
-            if ([string]::IsNullOrWhiteSpace($ActiveName)) {
-                $CurrentDisplayName = Get-WrapperDisplayName -Wrapper $TargetWrapper
-                $TypeNameDisplay = if ($Type -is [type]) { $Type.Name } else { $Type.ToString().Split('.')[-1] }
-                $ActiveName = Show-QuickSetInputDialog -Title "Save QuickSet" -Prompt "Enter QuickSet name for $($TypeNameDisplay):" -DefaultValue $CurrentDisplayName
-                if ([string]::IsNullOrWhiteSpace($ActiveName)) { return }
-                $ActiveName = $ActiveName.Trim()
-            }
-
             $CleanName = $ActiveName -replace '[\\/:*?"<>|]', '_'
             $FilePath = Join-Path $TypeDir "$CleanName.json"
 
@@ -4062,167 +4257,358 @@ function New-QuickSetMenuItem {
             $CurrentValue = Get-WrapperQuickSetValue -Wrapper $TargetWrapper
             $JsonText = ConvertTo-Json -InputObject $CurrentValue -Depth 20
             Set-Content -LiteralPath $FilePath -Value $JsonText -Encoding UTF8
+        }
 
-            if ($QSMenu) {
-                Update-QuickSetSubMenu -QuickSetMenuItem $QSMenu -Wrapper $TargetWrapper
+        Clear-WrapperQuickSetValue -Wrapper $TargetWrapper
+
+        if (-not ($TargetWrapper.Tag -is [hashtable])) { $TargetWrapper.Tag = @{} }
+        $TargetWrapper.Tag.ActiveQuickSet = $null
+        Update-QuickSetBadge -Wrapper $TargetWrapper -DisplayName $null
+
+        if ($QSMenu) {
+            Set-QuickSetActiveButtonsState -QuickSetMenuItem $QSMenu -IsEnabled $false
+            Update-QuickSetSubMenu -QuickSetMenuItem $QSMenu -Wrapper $TargetWrapper
+        }
+    }
+    catch {
+        [System.Windows.MessageBox]::Show("Error saving QuickSet: $_", "QuickSet Error") | Out-Null
+    }
+} # function Invoke-QuickSetClearButtonClick
+
+function Invoke-QuickSetCloseButtonClick {
+    param($s, $e)
+    try {
+        $QSMenu = Get-QuickSetMenuFromSender $s
+        $TargetWrapper = Get-QuickSetWrapper $s
+        if (-not $TargetWrapper) { return }
+
+        Clear-WrapperQuickSetValue -Wrapper $TargetWrapper
+
+        if (-not ($TargetWrapper.Tag -is [hashtable])) { $TargetWrapper.Tag = @{} }
+        $TargetWrapper.Tag.ActiveQuickSet = $null
+        Update-QuickSetBadge -Wrapper $TargetWrapper -DisplayName $null
+
+        if ($QSMenu) {
+            Set-QuickSetActiveButtonsState -QuickSetMenuItem $QSMenu -IsEnabled $false
+            Update-QuickSetSubMenu -QuickSetMenuItem $QSMenu -Wrapper $TargetWrapper
+        }
+    }
+    catch {
+        [System.Windows.MessageBox]::Show("Error closing QuickSet: $_", "QuickSet Error") | Out-Null
+    }
+} # function Invoke-QuickSetCloseButtonClick
+
+function Invoke-ClearButtonClick {
+    param($s, $e)
+    $ContentWrapper = Find-ObjectWhere -Object ([ref]$s) -FindWhere { $_.Name -eq "$($s.Name.Replace("_$ClearButtonNameSuffix", ''))" } -DigProperties 'Parent' -FindMax 1
+    if ($ContentWrapper) { Clear-WrapperContent ([ref]$ContentWrapper) }
+} # function Invoke-ClearButtonClick
+
+function Invoke-RandomValuesButtonClick {
+    param($s, $e)
+    $ContentWrapper = Find-ObjectWhere -Object ([ref]$s) -FindWhere { $_.Name -eq "$($s.Name.Replace("_$RandomValuesButtonNameSuffix", ''))" } -DigProperties 'Parent' -FindMax 1
+    if ($ContentWrapper) { Set-WrapperRandomContent ([ref]$ContentWrapper) }
+} # function Invoke-RandomValuesButtonClick
+
+function Invoke-DisableEnableButtonClick {
+    param($s, $e)
+    if ((Get-IsLocked $s)) { return }
+    $Parent = $s.Parent
+    $IsAll = $s.Header -like '* All' -or ($s.Tag -is [hashtable] -and $s.Tag.IsAll)
+
+    switch ($s.Icon) {
+        $DisableEnableButtonIconDisabled {
+            $s.Header = if ($IsAll) { $DisableEnableButtonHeaderEnabled + ' All' } else { $DisableEnableButtonHeaderEnabled }
+            $s.Icon = $DisableEnableButtonIconEnabled
+            $TargetIndex = if ($s.Tag -is [hashtable]) { $s.Tag.Index } else { $s.Tag }
+            Remove-CustomMenuChild ([ref]$Parent) ([ref]$s)
+            Add-ChildToItemsButtonMenu ([ref]$Parent) ([ref]$s) $TargetIndex
+            $s.Tag = $null
+
+            if ($IsAll) {
+                $ContentWrapper = Find-ObjectWhere -Object ([ref]$s) -FindWhere { $_.Name -eq "$($s.Name.Replace("_$DisableEnableButtonNameSuffix", ''))" } -DigProperties 'Parent' -FindMax 1
+                $ChildButtons = Find-ObjectWhere -Object ([ref]$ContentWrapper) -FindWhere { $_.Name -like "*$DisableEnableButtonNameSuffix" -and $_ -ne $s }
+                :ChildButtons foreach ($ChildButton in $ChildButtons) {
+                    if ((Get-IsLocked $ChildButton)) { continue ChildButtons }
+                    if ($ChildButton.Icon -eq $DisableEnableButtonIconDisabled) {
+                        $ChildParent = $ChildButton.Parent
+                        $ChildButton.Header = $DisableEnableButtonHeaderEnabled
+                        $ChildButton.Icon = $DisableEnableButtonIconEnabled
+                        $ChildIndex = if ($ChildButton.Tag -is [hashtable]) { $ChildButton.Tag.Index } else { $ChildButton.Tag }
+                        Remove-CustomMenuChild ([ref]$ChildParent) ([ref]$ChildButton)
+                        Add-ChildToItemsButtonMenu ([ref]$ChildParent) ([ref]$ChildButton) $ChildIndex
+                        $ChildButton.Tag = $null
+                    }
+                }
             }
-        })
-
-    $RenameBtn.Add_Click({
-            param($s, $e)
-            $QSMenu = Get-QuickSetMenuFromSender -Sender $s
-            $TargetWrapper = Get-QuickSetWrapper -Sender $s
-            if (-not $TargetWrapper) { return }
-
-            $ActiveName = if ($TargetWrapper.Tag -is [hashtable] -and $TargetWrapper.Tag.ContainsKey('ActiveQuickSet')) {
-                $TargetWrapper.Tag.ActiveQuickSet
+            else {
+                Confirm-ArrayEnableButton -Item ([ref]$s)
             }
-            else { $null }
+        }
+        $DisableEnableButtonIconEnabled {
+            $TagInfo = if ($IsAll) { @{ Index = $Parent.Items.IndexOf($s); IsAll = $true } } else { $Parent.Items.IndexOf($s) }
+            $s.Tag = $TagInfo
+            $s.Header = if ($IsAll) { $DisableEnableButtonHeaderDisabled + ' All' } else { $DisableEnableButtonHeaderDisabled }
+            $s.Icon = $DisableEnableButtonIconDisabled
+            Remove-ChildToItemsButtonMenu ([ref]$Parent) ([ref]$s)
+            Add-CustomMenuChild ([ref]$Parent) ([ref]$s)
 
-            if ([string]::IsNullOrWhiteSpace($ActiveName)) {
-                [System.Windows.MessageBox]::Show("Please select a QuickSet first to rename.", "QuickSet - Rename", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information) | Out-Null
-                return
+            if ($IsAll) {
+                $ContentWrapper = Find-ObjectWhere -Object ([ref]$s) -FindWhere { $_.Name -eq "$($s.Name.Replace("_$DisableEnableButtonNameSuffix", ''))" } -DigProperties 'Parent' -FindMax 1
+                $ChildButtons = Find-ObjectWhere -Object ([ref]$ContentWrapper) -FindWhere { $_.Name -like "*$DisableEnableButtonNameSuffix" -and $_ -ne $s }
+                :ChildButtons foreach ($ChildButton in $ChildButtons) {
+                    if ((Get-IsLocked $ChildButton)) { continue ChildButtons }
+                    if ($ChildButton.Icon -eq $DisableEnableButtonIconEnabled) {
+                        $ChildParent = $ChildButton.Parent
+                        $ChildButton.Tag = $ChildParent.Items.IndexOf($ChildButton)
+                        $ChildButton.Header = $DisableEnableButtonHeaderDisabled
+                        $ChildButton.Icon = $DisableEnableButtonIconDisabled
+                        Remove-ChildToItemsButtonMenu ([ref]$ChildParent) ([ref]$ChildButton)
+                        Add-CustomMenuChild ([ref]$ChildParent) ([ref]$ChildButton)
+                    }
+                }
             }
-
-            $Type = Get-WrapperTargetType -Wrapper $TargetWrapper
-            $TypeDir = Get-QuickSetTypeDirectory -Type $Type
-            $OldFile = Join-Path $TypeDir "$ActiveName.json"
-            if (-not (Test-Path -LiteralPath $OldFile)) {
-                [System.Windows.MessageBox]::Show("QuickSet file not found on disk: $ActiveName.json", "QuickSet", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Warning) | Out-Null
-                return
+            else {
+                Confirm-ArrayEnableButton -Item ([ref]$s)
             }
+        }
+    }
+} # function Invoke-DisableEnableButtonClick
 
-            $NewName = Show-QuickSetInputDialog -Title "Rename QuickSet" -Prompt "Enter new name for '$ActiveName':" -DefaultValue $ActiveName
-            if ([string]::IsNullOrWhiteSpace($NewName) -or $NewName.Trim() -eq $ActiveName) { return }
-            $NewName = ($NewName.Trim() -replace '[\\/:*?"<>|]', '_')
-            $NewFile = Join-Path $TypeDir "$NewName.json"
+function Invoke-DeleteButtonClick {
+    param($s, $e)
+    if ((Get-IsLocked $s)) { return }
+    $ContentWrapper = Find-ObjectWhere -Object ([ref]$s) -FindWhere { $_.Name -eq "$($s.Name.Replace("_$DeleteButtonNameSuffix", ''))" } -DigProperties 'Parent' -FindMax 1
+    if (-not $ContentWrapper) { return }
 
-            if (Test-Path -LiteralPath $NewFile) {
-                $Overwrite = Show-QuickSetConfirmDialog -Title "Overwrite QuickSet" -Message "A QuickSet named '$NewName' already exists. Overwrite it?"
-                if (-not $Overwrite) { return }
+    $IsAll = $s.Header -like '* All'
+    if ($IsAll) {
+        $ContentSlotElement = Find-ObjectWhere -Object ([ref]$ContentWrapper) -FindWhere { $_.Name -eq $ContentSlotElementName } -FindMax 1
+        if ($ContentSlotElement) {
+            :Delete foreach ($Child in @($ContentSlotElement.Children)) {
+                if ((Get-IsLocked $Child)) { continue Delete } # TODO: Flash Lock
+                $ContentSlotElement.Children.Remove($Child)
             }
-
-            Move-Item -LiteralPath $OldFile -Destination $NewFile -Force
-            Set-WrapperDisplayName -Wrapper $TargetWrapper -DisplayName $NewName
-
-            $CurrentValue = Get-WrapperQuickSetValue -Wrapper $TargetWrapper
-            $JsonText = ConvertTo-Json -InputObject $CurrentValue -Depth 20
-            Set-Content -LiteralPath $NewFile -Value $JsonText -Encoding UTF8
-
-            if ($QSMenu) {
-                Update-QuickSetSubMenu -QuickSetMenuItem $QSMenu -Wrapper $TargetWrapper
+            Reset-ArrayIndexes ([ref]$ContentSlotElement)
+            Confirm-ArrayEnableButton -Item ([ref]$ContentWrapper)
+            if ($ContentSlotElement.Children.Count -eq 0) {
+                $SaveItem = Find-ObjectWhere -Object ([ref]$ContentWrapper) -FindWhere { $_.Name -like "*_$QuickSetSaveButtonNameSuffix" } -FindMax 1
+                if ($SaveItem -is [array]) { $SaveItem = $SaveItem[0] }
+                if ($SaveItem) { $SaveItem.IsEnabled = $false }
             }
-        })
-
-    $CopyBtn.Add_Click({
-            param($s, $e)
-            $QSMenu = Get-QuickSetMenuFromSender -Sender $s
-            $TargetWrapper = Get-QuickSetWrapper -Sender $s
-            if (-not $TargetWrapper) { return }
-
-            $ActiveName = if ($TargetWrapper.Tag -is [hashtable] -and $TargetWrapper.Tag.ContainsKey('ActiveQuickSet')) {
-                $TargetWrapper.Tag.ActiveQuickSet
+        }
+    }
+    else {
+        if ((Get-IsLocked $ContentWrapper)) { return }
+        $Array = $ContentWrapper.Parent
+        if ($Array) {
+            $Array.Children.Remove($ContentWrapper)
+            Reset-ArrayIndexes ([ref]$Array)
+            Confirm-ArrayEnableButton -Item ([ref]$Array)
+            if ($Array.Children.Count -eq 0) {
+                $ParentWrapper = Find-ObjectWhere -Object ([ref]$Array) -FindWhere { $_.Name -eq $ContentHeaderBorderName } -DigProperties 'Parent' -FindMax 1
+                if ($ParentWrapper -is [array]) { $ParentWrapper = $ParentWrapper[0] }
+                if ($ParentWrapper) {
+                    $SaveItem = Find-ObjectWhere -Object ([ref]$ParentWrapper) -FindWhere { $_.Name -like "*_$QuickSetSaveButtonNameSuffix" } -FindMax 1
+                    if ($SaveItem -is [array]) { $SaveItem = $SaveItem[0] }
+                    if ($SaveItem) { $SaveItem.IsEnabled = $false }
+                }
             }
-            else { $null }
+        }
+    }
+} # function Invoke-DeleteButtonClick
 
-            if ([string]::IsNullOrWhiteSpace($ActiveName)) {
-                [System.Windows.MessageBox]::Show("Please select a QuickSet first to copy.", "QuickSet - Copy", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information) | Out-Null
-                return
+function Invoke-SearchButtonClick {
+    param($s, $e)
+    $ContentHeaderBorder = Find-ObjectWhere -Object ([ref]$s) -FindWhere { $_.Name -eq $ContentHeaderBorderName } -DigProperties 'Parent' -FindMax 1
+    if (-not $ContentHeaderBorder) { return }
+
+    $ContentHeaderBorderStack = Find-ObjectWhere -Object ([ref]$ContentHeaderBorder) -FindWhere { $_.Name -eq $ContentHeaderBorderStackName } -FindMax 1
+    if (-not $ContentHeaderBorderStack) { return }
+
+    $SearchBar = $ContentHeaderBorderStack.Children | Where-Object { $_.Name -like "*$SearchBarNameSuffix" }
+    if (-not $SearchBar) {
+        $SearchBar = Find-ObjectWhere -Object ([ref]$ContentHeaderBorder) -FindWhere { $_.Name -like "*$SearchBarNameSuffix" } -FindMax 1
+    }
+    if (-not $SearchBar) { return }
+
+    if ($SearchBar.Visibility -eq 'Visible') {
+        Close-SearchBar -ChildElement $SearchBar
+    }
+    else {
+        $ContentHeaderBorderStack = Find-ObjectWhere -Object ([ref]$ContentHeaderBorder) -FindWhere { $_.Name -eq $ContentHeaderBorderStackName } -FindMax 1
+        $ContentSlot = if ($ContentHeaderBorderStack) { $ContentHeaderBorderStack.Children | Where-Object { $_.Name -eq $ContentSlotElementName } } else { $null }
+        if ($ContentSlot -and $ContentSlot.Visibility -ne 'Visible') {
+            $ContentSlot.Visibility = 'Visible'
+            $MinMaxButton = Find-ObjectWhere -Object ([ref]$ContentHeaderBorder) -FindWhere { $_.Name -eq $MinMaxButtonName } -FindMax 1
+            if ($MinMaxButton) {
+                $MinMaxButton.Header = $MinMaxButtonMinedIcon
+                $MinMaxButton.ToolTip = $MinMaxButtonMinedToolTip
             }
+        }
 
-            $Type = Get-WrapperTargetType -Wrapper $TargetWrapper
-            $TypeDir = Get-QuickSetTypeDirectory -Type $Type
-            $SourceFile = Join-Path $TypeDir "$ActiveName.json"
-            if (-not (Test-Path -LiteralPath $SourceFile)) { return }
+        $SearchBar.Visibility = 'Visible'
+        $SearchInput = Find-ObjectWhere -Object ([ref]$SearchBar) -FindWhere { $_.Name -like "*$SearchInputNameSuffix" } -FindMax 1
+        if ($SearchInput) {
+            $SearchInput.Focus()
+            $SearchInput.SelectAll()
+        }
+    }
+} # function Invoke-SearchButtonClick
 
-            $CopyName = Show-QuickSetInputDialog -Title "Copy QuickSet" -Prompt "Enter name for copy of '$ActiveName':" -DefaultValue "$ActiveName - Copy"
-            if ([string]::IsNullOrWhiteSpace($CopyName)) { return }
-            $CopyName = ($CopyName.Trim() -replace '[\\/:*?"<>|]', '_')
-            $DestFile = Join-Path $TypeDir "$CopyName.json"
+function Invoke-LockUnlockButtonClick {
+    param($s, $e)
+    $Parent = $s.Parent
+    switch ($s.Icon) {
+        $LockUnlockButtonIconLocked {
+            $s.Header = $LockUnlockButtonHeaderUnlocked
+            $s.Icon = $LockUnlockButtonIconUnlocked
+            Remove-CustomMenuChild ([ref]$Parent) ([ref]$s)
+            Add-ChildToItemsButtonMenu ([ref]$Parent) ([ref]$s) $s.Tag
+            # Remove LockButton Index from Tag property
+            $s.Tag = $null
+            Set-LockableButtonsState -LockButton $s -IsEnabled $true
+        }
+        $LockUnlockButtonIconUnlocked {
+            # Add LockButton Index to Tag property
+            $s.Tag = $Parent.Items.IndexOf($s)
+            $s.Header = $LockUnlockButtonHeaderLocked
+            $s.Icon = $LockUnlockButtonIconLocked
+            Remove-ChildToItemsButtonMenu ([ref]$Parent) ([ref]$s)
+            Add-CustomMenuChild ([ref]$Parent) ([ref]$s)
+            Set-LockableButtonsState -LockButton $s -IsEnabled $false
+        }
+    }
+} # function Invoke-LockUnlockButtonClick
 
-            if (Test-Path -LiteralPath $DestFile) {
-                $Overwrite = Show-QuickSetConfirmDialog -Title "Overwrite QuickSet" -Message "A QuickSet named '$CopyName' already exists. Overwrite it?"
-                if (-not $Overwrite) { return }
-            }
+function New-MinMaxButton {
+    $MinMaxButton = New-BaseMenuItem @{
+        Name    = $MinMaxButtonName
+        Header  = $MinMaxButtonMinedIcon
+        ToolTip = $MinMaxButtonMinedToolTip
+    }
+    $MinMaxButton.Add_Click({ param($s, $e) Invoke-MinMaxButtonClick $s $e })
+    return $MinMaxButton
+} # function New-MinMaxButton
 
-            Copy-Item -LiteralPath $SourceFile -Destination $DestFile -Force
-            Set-WrapperDisplayName -Wrapper $TargetWrapper -DisplayName $CopyName
+function New-AddArrayItemButton {
+    param( [type]$Type )
+    $AddArrayItemButton = New-BaseMenuItem @{
+        Name    = $AddArrayItemButtonName
+        Tag     = $Type.FullName
+        Header  = $AddArrayItemButtonIcon
+        ToolTip = $AddArrayItemButtonToolTip
+    }
+    $AddArrayItemButton.Add_Click({ param($s, $e) Invoke-AddArrayItemButtonClick $s $e })
 
-            $CurrentValue = Get-WrapperQuickSetValue -Wrapper $TargetWrapper
-            $JsonText = ConvertTo-Json -InputObject $CurrentValue -Depth 20
-            Set-Content -LiteralPath $DestFile -Value $JsonText -Encoding UTF8
+    return $AddArrayItemButton
+} # function New-AddArrayItemButton
 
-            if ($QSMenu) {
-                Update-QuickSetSubMenu -QuickSetMenuItem $QSMenu -Wrapper $TargetWrapper
-            }
-        })
+function New-QuickSetMenuItem {
+    param(
+        [string]$ActionFrom = $ContentHeaderBorderName,
+        [bool]$IsConstruct = $false
+    )
 
-    $OverwriteBtn.Add_Click({
-            param($s, $e)
-            $QSMenu = Get-QuickSetMenuFromSender -Sender $s
-            $TargetWrapper = Get-QuickSetWrapper -Sender $s
-            if (-not $TargetWrapper) { return }
+    $QuickSetMenu = New-BaseMenuItem @{
+        Name    = "$ActionFrom`_$QuickSetMenuNameSuffix"
+        Header  = $QuickSetHeader
+        Icon    = $QuickSetIcon
+        ToolTip = $QuickSetToolTip
+    }
 
-            $ActiveName = if ($TargetWrapper.Tag -is [hashtable] -and $TargetWrapper.Tag.ContainsKey('ActiveQuickSet')) {
-                $TargetWrapper.Tag.ActiveQuickSet
-            }
-            else { $null }
+    $SetMenu = New-BaseMenuItem @{
+        Name    = "$ActionFrom`_$QuickSetSetMenuNameSuffix"
+        Header  = $QuickSetSetMenuHeader
+        Icon    = $QuickSetSetMenuIcon
+        ToolTip = $QuickSetSetMenuToolTip
+    }
+    $QuickSetMenu.Items.Add($SetMenu) | Out-Null
 
-            if ([string]::IsNullOrWhiteSpace($ActiveName)) {
-                [System.Windows.MessageBox]::Show("Please select a QuickSet first to overwrite.", "QuickSet - Overwrite", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information) | Out-Null
-                return
-            }
+    $RefreshButton = New-BaseMenuItem @{
+        Name    = "$ActionFrom`_$QuickSetRefreshButtonNameSuffix"
+        Header  = $QuickSetRefreshButtonHeader
+        Icon    = $QuickSetRefreshButtonIcon
+        ToolTip = $QuickSetRefreshButtonToolTip
+    }
+    $QuickSetMenu.Items.Add($RefreshButton) | Out-Null
 
-            $Confirm = Show-QuickSetConfirmDialog -Title "Overwrite QuickSet" -Message "Are you sure you want to overwrite '$ActiveName' with current values?"
-            if (-not $Confirm) { return }
+    $SaveButton = New-BaseMenuItem @{
+        Name      = "$ActionFrom`_$QuickSetSaveButtonNameSuffix"
+        Header    = $QuickSetSaveButtonHeader
+        Icon      = $QuickSetSaveButtonIcon
+        ToolTip   = $QuickSetSaveButtonToolTip
+        IsEnabled = $IsConstruct
+    }
+    $QuickSetMenu.Items.Add($SaveButton) | Out-Null
 
-            $Type = Get-WrapperTargetType -Wrapper $TargetWrapper
-            $TypeDir = Get-QuickSetTypeDirectory -Type $Type
-            $FilePath = Join-Path $TypeDir "$ActiveName.json"
+    $OverwriteButton = New-BaseMenuItem @{
+        Name      = "$ActionFrom`_$QuickSetOverwriteButtonNameSuffix"
+        Header    = $QuickSetOverwriteButtonHeader
+        Icon      = $QuickSetOverwriteButtonIcon
+        ToolTip   = $QuickSetOverwriteButtonToolTip
+        IsEnabled = $false
+    }
+    $QuickSetMenu.Items.Add($OverwriteButton) | Out-Null
 
-            Set-WrapperDisplayName -Wrapper $TargetWrapper -DisplayName $ActiveName
+    $RenameButton = New-BaseMenuItem @{
+        Name      = "$ActionFrom`_$QuickSetRenameButtonNameSuffix"
+        Header    = $QuickSetRenameButtonHeader
+        Icon      = $QuickSetRenameButtonIcon
+        ToolTip   = $QuickSetRenameButtonToolTip
+        IsEnabled = $false
+    }
+    $QuickSetMenu.Items.Add($RenameButton) | Out-Null
 
-            $CurrentValue = Get-WrapperQuickSetValue -Wrapper $TargetWrapper
-            $JsonText = ConvertTo-Json -InputObject $CurrentValue -Depth 20
-            Set-Content -LiteralPath $FilePath -Value $JsonText -Encoding UTF8
+    $ClearButton = New-BaseMenuItem @{
+        Name      = "$ActionFrom`_$QuickSetClearButtonNameSuffix"
+        Header    = $QuickSetClearButtonHeader
+        Icon      = $QuickSetClearButtonIcon
+        ToolTip   = $QuickSetClearButtonToolTip
+        IsEnabled = $false
+    }
+    $QuickSetMenu.Items.Add($ClearButton) | Out-Null
 
-            if ($QSMenu) {
-                Update-QuickSetSubMenu -QuickSetMenuItem $QSMenu -Wrapper $TargetWrapper
-            }
-        })
+    $CloseButton = New-BaseMenuItem @{
+        Name      = "$ActionFrom`_$QuickSetCloseButtonNameSuffix"
+        Header    = $QuickSetCloseButtonHeader
+        Icon      = $QuickSetCloseButtonIcon
+        ToolTip   = $QuickSetCloseButtonToolTip
+        IsEnabled = $false
+    }
+    $QuickSetMenu.Items.Add($CloseButton) | Out-Null
 
-    $DeleteBtn.Add_Click({
-            param($s, $e)
-            $QSMenu = Get-QuickSetMenuFromSender -Sender $s
-            $TargetWrapper = Get-QuickSetWrapper -Sender $s
-            if (-not $TargetWrapper) { return }
+    $DeleteButton = New-BaseMenuItem @{
+        Name      = "$ActionFrom`_$QuickSetDeleteButtonNameSuffix"
+        Header    = $QuickSetDeleteButtonHeader
+        Icon      = $QuickSetDeleteButtonIcon
+        ToolTip   = $QuickSetDeleteButtonToolTip
+        IsEnabled = $false
+    }
+    $QuickSetMenu.Items.Add($DeleteButton) | Out-Null
 
-            $ActiveName = if ($TargetWrapper.Tag -is [hashtable] -and $TargetWrapper.Tag.ContainsKey('ActiveQuickSet')) {
-                $TargetWrapper.Tag.ActiveQuickSet
-            }
-            else { $null }
+    # Show tooltips even while a QuickSet button is disabled, so the user knows what it needs
+    :items foreach ($Item in $QuickSetMenu.Items) {
+        [System.Windows.Controls.ToolTipService]::SetShowOnDisabled($Item, $true)
+    } # items foreach
 
-            if ([string]::IsNullOrWhiteSpace($ActiveName)) {
-                [System.Windows.MessageBox]::Show("Please select a QuickSet first to delete.", "QuickSet - Delete", [System.Windows.MessageBoxButton]::OK, [System.Windows.MessageBoxImage]::Information) | Out-Null
-                return
-            }
+    # QuickSet Button Functionaility
+    $RefreshButton.Add_Click({ param($s, $e) Invoke-QuickSetRefreshButtonClick $s $e })
+    $SaveButton.Add_Click({ param($s, $e) Invoke-QuickSetSaveButtonClick $s $e })
+    $OverwriteButton.Add_Click({ param($s, $e) Invoke-QuickSetOverwriteButtonClick $s $e })
+    $RenameButton.Add_Click({ param($s, $e) Invoke-QuickSetRenameButtonClick $s $e })
+    $ClearButton.Add_Click({ param($s, $e) Invoke-QuickSetClearButtonClick $s $e })
+    $CloseButton.Add_Click({ param($s, $e) Invoke-QuickSetCloseButtonClick $s $e })
+    $DeleteButton.Add_Click({ param($s, $e) Invoke-QuickSetDeleteButtonClick $s $e })
 
-            $Confirm = Show-QuickSetConfirmDialog -Title "Delete QuickSet" -Message "Are you sure you want to delete QuickSet '$ActiveName'?"
-            if (-not $Confirm) { return }
-
-            $Type = Get-WrapperTargetType -Wrapper $TargetWrapper
-            $TypeDir = Get-QuickSetTypeDirectory -Type $Type
-            $FilePath = Join-Path $TypeDir "$ActiveName.json"
-            if (Test-Path -LiteralPath $FilePath) {
-                Remove-Item -LiteralPath $FilePath -Force -ErrorAction SilentlyContinue
-            }
-
-            $TargetWrapper.Tag.ActiveQuickSet = $null
-            Update-QuickSetBadge -Wrapper $TargetWrapper -DisplayName $null
-            if ($QSMenu) {
-                Update-QuickSetSubMenu -QuickSetMenuItem $QSMenu -Wrapper $TargetWrapper
-            }
-        })
+    # Populate the Set submenu once, the first time the QuickSet menu is loaded into the visual tree
+    $LoadedState = @{ HasRefreshed = $false }
+    $QuickSetMenu.Add_Loaded(({
+                param($s, $e)
+                if ($LoadedState.HasRefreshed) { return }
+                $LoadedState.HasRefreshed = $true
+                Invoke-QuickSetRefreshButtonClick $s $e
+            }).GetNewClosure())
 
     return $QuickSetMenu
 } # function New-QuickSetMenuItem
@@ -4230,40 +4616,36 @@ function New-QuickSetMenuItem {
 function New-ClearButton {
     param(
         [string]$Header = $ClearButtonHeader,
+        [string]$ToolTip = $ClearButtonToolTip,
         [string]$ActionFrom = $ContentHeaderBorderName
     )
 
     $ClearButton = New-BaseMenuItem @{
-        Name   = "$ActionFrom`_$ClearButtonNameSuffix"
-        Header = $Header
-        Icon   = $ClearButtonIcon
+        Name    = "$ActionFrom`_$ClearButtonNameSuffix"
+        Header  = $Header
+        Icon    = $ClearButtonIcon
+        ToolTip = $ToolTip
     }
-    $ClearButton.Add_Click({
-            param($sender, $e)
-            $ContentWrapper = Find-ObjectWhere -Object ([ref]$sender) -FindWhere { $_.Name -eq "$($sender.Name.Replace("_$ClearButtonNameSuffix", ''))" } -DigProperties 'Parent' -FindMax 1
-            if ($ContentWrapper) { Clear-WrapperContent ([ref]$ContentWrapper) }
-        }
-    )
+    $ClearButton.Add_Click({ param($s, $e) Invoke-ClearButtonClick $s $e })
+    Add-LockableButtonToolTip -Button $ClearButton -ToolTip $ToolTip
     return $ClearButton
 } # function New-ClearButton
 
 function New-RandomValuesButton {
     param(
         [string]$Header = $RandomValuesButtonHeader,
+        [string]$ToolTip = $RandomValuesButtonToolTip,
         [string]$ActionFrom = $ContentHeaderBorderName
     )
 
     $RandomValuesButton = New-BaseMenuItem @{
-        Name   = "$ActionFrom`_$RandomValuesButtonNameSuffix"
-        Header = $Header
-        Icon   = $RandomValuesButtonIcon
+        Name    = "$ActionFrom`_$RandomValuesButtonNameSuffix"
+        Header  = $Header
+        Icon    = $RandomValuesButtonIcon
+        ToolTip = $ToolTip
     }
-    $RandomValuesButton.Add_Click({
-            param($sender, $e)
-            $ContentWrapper = Find-ObjectWhere -Object ([ref]$sender) -FindWhere { $_.Name -eq "$($sender.Name.Replace("_$RandomValuesButtonNameSuffix", ''))" } -DigProperties 'Parent' -FindMax 1
-            if ($ContentWrapper) { Set-WrapperRandomContent ([ref]$ContentWrapper) }
-        }
-    )
+    $RandomValuesButton.Add_Click({ param($s, $e) Invoke-RandomValuesButtonClick $s $e })
+    Add-LockableButtonToolTip -Button $RandomValuesButton -ToolTip $ToolTip
     return $RandomValuesButton
 } # function New-RandomValuesButton
 
@@ -4278,70 +4660,14 @@ function New-DisableEnableButton {
         Header = $Header
         Icon   = $DisableEnableButtonIconEnabled
     }
+    $DisableEnableButton.ToolTip = Get-DisableEnableButtonToolTip -Button $DisableEnableButton
+    [System.Windows.Controls.ToolTipService]::SetShowOnDisabled($DisableEnableButton, $true)
 
-    $DisableEnableButton.Add_Click({
-            param($sender, $e)
-            if ((Get-IsLocked $sender)) { return }
-            $Parent = $Sender.Parent
-            $IsAll = $sender.Header -like '* All' -or ($sender.Tag -is [hashtable] -and $sender.Tag.IsAll)
-
-            switch ($sender.Icon) {
-                $DisableEnableButtonIconDisabled {
-                    $sender.Header = if ($IsAll) { $DisableEnableButtonHeaderEnabled + ' All' } else { $DisableEnableButtonHeaderEnabled }
-                    $sender.Icon = $DisableEnableButtonIconEnabled
-                    $TargetIndex = if ($sender.Tag -is [hashtable]) { $sender.Tag.Index } else { $sender.Tag }
-                    Remove-CustomMenuChild ([ref]$Parent) ([ref]$sender)
-                    Add-ChildToItemsButtonMenu ([ref]$Parent) ([ref]$sender) $TargetIndex
-                    $sender.Tag = $null
-
-                    if ($IsAll) {
-                        $ContentWrapper = Find-ObjectWhere -Object ([ref]$sender) -FindWhere { $_.Name -eq "$($sender.Name.Replace("_$DisableEnableButtonNameSuffix", ''))" } -DigProperties 'Parent' -FindMax 1
-                        $ChildButtons = Find-ObjectWhere -Object ([ref]$ContentWrapper) -FindWhere { $_.Name -like "*$DisableEnableButtonNameSuffix" -and $_ -ne $sender }
-                        :ChildButtons foreach ($ChildButton in $ChildButtons) {
-                            if ((Get-IsLocked $ChildButton)) { continue ChildButtons }
-                            if ($ChildButton.Icon -eq $DisableEnableButtonIconDisabled) {
-                                $ChildParent = $ChildButton.Parent
-                                $ChildButton.Header = $DisableEnableButtonHeaderEnabled
-                                $ChildButton.Icon = $DisableEnableButtonIconEnabled
-                                $ChildIndex = if ($ChildButton.Tag -is [hashtable]) { $ChildButton.Tag.Index } else { $ChildButton.Tag }
-                                Remove-CustomMenuChild ([ref]$ChildParent) ([ref]$ChildButton)
-                                Add-ChildToItemsButtonMenu ([ref]$ChildParent) ([ref]$ChildButton) $ChildIndex
-                                $ChildButton.Tag = $null
-                            }
-                        }
-                    }
-                    else {
-                        Confirm-ArrayEnableButton -Item ([ref]$sender)
-                    }
-                }
-                $DisableEnableButtonIconEnabled {
-                    $TagInfo = if ($IsAll) { @{ Index = $Parent.Items.IndexOf($sender); IsAll = $true } } else { $Parent.Items.IndexOf($sender) }
-                    $sender.Tag = $TagInfo
-                    $sender.Header = if ($IsAll) { $DisableEnableButtonHeaderDisabled + ' All' } else { $DisableEnableButtonHeaderDisabled }
-                    $sender.Icon = $DisableEnableButtonIconDisabled
-                    Remove-ChildToItemsButtonMenu ([ref]$Parent) ([ref]$sender)
-                    Add-CustomMenuChild ([ref]$Parent) ([ref]$sender)
-
-                    if ($IsAll) {
-                        $ContentWrapper = Find-ObjectWhere -Object ([ref]$sender) -FindWhere { $_.Name -eq "$($sender.Name.Replace("_$DisableEnableButtonNameSuffix", ''))" } -DigProperties 'Parent' -FindMax 1
-                        $ChildButtons = Find-ObjectWhere -Object ([ref]$ContentWrapper) -FindWhere { $_.Name -like "*$DisableEnableButtonNameSuffix" -and $_ -ne $sender }
-                        :ChildButtons foreach ($ChildButton in $ChildButtons) {
-                            if ((Get-IsLocked $ChildButton)) { continue ChildButtons }
-                            if ($ChildButton.Icon -eq $DisableEnableButtonIconEnabled) {
-                                $ChildParent = $ChildButton.Parent
-                                $ChildButton.Tag = $ChildParent.Items.IndexOf($ChildButton)
-                                $ChildButton.Header = $DisableEnableButtonHeaderDisabled
-                                $ChildButton.Icon = $DisableEnableButtonIconDisabled
-                                Remove-ChildToItemsButtonMenu ([ref]$ChildParent) ([ref]$ChildButton)
-                                Add-CustomMenuChild ([ref]$ChildParent) ([ref]$ChildButton)
-                            }
-                        }
-                    }
-                    else {
-                        Confirm-ArrayEnableButton -Item ([ref]$sender)
-                    }
-                }
-            }
+    $DisableEnableButton.Add_Click({ param($s, $e) Invoke-DisableEnableButtonClick $s $e })
+    # Tooltip follows the current Disable/Enable state and adds the locked note when disabled
+    $DisableEnableButton.Add_ToolTipOpening({
+            param($s, $e)
+            $s.ToolTip = Get-LockableToolTip -Button $s -ToolTip (Get-DisableEnableButtonToolTip -Button $s)
         })
 
     return $DisableEnableButton
@@ -4350,44 +4676,19 @@ function New-DisableEnableButton {
 function New-DeleteButton {
     param(
         [string]$Header = $DeleteButtonHeader,
+        [string]$ToolTip = $DeleteButtonToolTip,
         [string]$ActionFrom = $ContentHeaderBorderName
     )
 
     $DeleteButton = New-BaseMenuItem @{
-        Name   = "$ActionFrom`_$DeleteButtonNameSuffix"
-        Header = $Header
-        Icon   = $DeleteButtonIcon
+        Name    = "$ActionFrom`_$DeleteButtonNameSuffix"
+        Header  = $Header
+        Icon    = $DeleteButtonIcon
+        ToolTip = $ToolTip
     }
 
-    $DeleteButton.Add_Click({
-            param($sender, $e)
-            if ((Get-IsLocked $sender)) { return }
-            $ContentWrapper = Find-ObjectWhere -Object ([ref]$sender) -FindWhere { $_.Name -eq "$($sender.Name.Replace("_$DeleteButtonNameSuffix", ''))" } -DigProperties 'Parent' -FindMax 1
-            if (-not $ContentWrapper) { return }
-
-            $IsAll = $sender.Header -like '* All'
-            if ($IsAll) {
-                $ContentSlotElement = Find-ObjectWhere -Object ([ref]$ContentWrapper) -FindWhere { $_.Name -eq $ContentSlotElementName } -FindMax 1
-                if ($ContentSlotElement) {
-                    :Delete foreach ($Child in @($ContentSlotElement.Children)) {
-                        if ((Get-IsLocked $Child)) { continue Delete } # TODO: Flash Lock
-                        $ContentSlotElement.Children.Remove($Child)
-                    }
-                    Reset-ArrayIndexes ([ref]$ContentSlotElement)
-                    Confirm-ArrayEnableButton -Item ([ref]$ContentWrapper)
-                }
-            }
-            else {
-                if ((Get-IsLocked $ContentWrapper)) { return }
-                $Array = $ContentWrapper.Parent
-                if ($Array) {
-                    $Array.Children.Remove($ContentWrapper)
-                    Reset-ArrayIndexes ([ref]$Array)
-                    Confirm-ArrayEnableButton -Item ([ref]$Array)
-                }
-            }
-        }
-    )
+    $DeleteButton.Add_Click({ param($s, $e) Invoke-DeleteButtonClick $s $e })
+    Add-LockableButtonToolTip -Button $DeleteButton -ToolTip $ToolTip
 
     return $DeleteButton
 } # function New-DeleteButton
@@ -4406,43 +4707,7 @@ function New-SearchButton {
         ToolTip = $SearchButtonToolTip
     }
 
-    $SearchButton.Add_Click({
-            param($sender, $e)
-            $ContentHeaderBorder = Find-ObjectWhere -Object ([ref]$sender) -FindWhere { $_.Name -eq $ContentHeaderBorderName } -DigProperties 'Parent' -FindMax 1
-            if (-not $ContentHeaderBorder) { return }
-
-            $ContentHeaderBorderStack = Find-ObjectWhere -Object ([ref]$ContentHeaderBorder) -FindWhere { $_.Name -eq $ContentHeaderBorderStackName } -FindMax 1
-            if (-not $ContentHeaderBorderStack) { return }
-
-            $SearchBar = $ContentHeaderBorderStack.Children | Where-Object { $_.Name -like "*$SearchBarNameSuffix" }
-            if (-not $SearchBar) {
-                $SearchBar = Find-ObjectWhere -Object ([ref]$ContentHeaderBorder) -FindWhere { $_.Name -like "*$SearchBarNameSuffix" } -FindMax 1
-            }
-            if (-not $SearchBar) { return }
-
-            if ($SearchBar.Visibility -eq 'Visible') {
-                Close-SearchBar -ChildElement $SearchBar
-            }
-            else {
-                $ContentHeaderBorderStack = Find-ObjectWhere -Object ([ref]$ContentHeaderBorder) -FindWhere { $_.Name -eq $ContentHeaderBorderStackName } -FindMax 1
-                $ContentSlot = if ($ContentHeaderBorderStack) { $ContentHeaderBorderStack.Children | Where-Object { $_.Name -eq $ContentSlotElementName } } else { $null }
-                if ($ContentSlot -and $ContentSlot.Visibility -ne 'Visible') {
-                    $ContentSlot.Visibility = 'Visible'
-                    $MinMaxButton = Find-ObjectWhere -Object ([ref]$ContentHeaderBorder) -FindWhere { $_.Name -eq $MinMaxButtonName } -FindMax 1
-                    if ($MinMaxButton) {
-                        $MinMaxButton.Header = $MinMaxButtonMinedIcon
-                        $MinMaxButton.ToolTip = $MinMaxButtonMinedToolTip
-                    }
-                }
-
-                $SearchBar.Visibility = 'Visible'
-                $SearchInput = Find-ObjectWhere -Object ([ref]$SearchBar) -FindWhere { $_.Name -like "*$SearchInputNameSuffix" } -FindMax 1
-                if ($SearchInput) {
-                    $SearchInput.Focus()
-                    $SearchInput.SelectAll()
-                }
-            }
-        })
+    $SearchButton.Add_Click({ param($s, $e) Invoke-SearchButtonClick $s $e })
 
     return $SearchButton
 } # function New-SearchButton
@@ -4451,38 +4716,86 @@ function New-LockButton {
     param($ActionFrom)
 
     $LockUnlockButton = New-BaseMenuItem @{
-        Name   = $LockUnlockButtonName
-        Header = $LockUnlockButtonHeaderUnlocked
-        Icon   = $LockUnlockButtonIconUnlocked
+        Name    = $LockUnlockButtonName
+        Header  = $LockUnlockButtonHeaderUnlocked
+        Icon    = $LockUnlockButtonIconUnlocked
+        ToolTip = $LockUnlockButtonToolTipUnlocked
     }
 
-    $LockUnlockButton.Add_Click({
-            param($sender, $e)
-            $Parent = $Sender.Parent
-            switch ($sender.Icon) {
-                $LockUnlockButtonIconLocked {
-                    $sender.Header = $LockUnlockButtonHeaderUnlocked
-                    $sender.Icon = $LockUnlockButtonIconUnlocked
-                    Remove-CustomMenuChild ([ref]$Parent) ([ref]$sender)
-                    Add-ChildToItemsButtonMenu ([ref]$Parent) ([ref]$sender) $sender.Tag
-                    # Remove LockButton Index from Tag property
-                    $sender.Tag = $null
-                }
-                $LockUnlockButtonIconUnlocked {
-                    # Add LockButton Index to Tag property
-                    $sender.Tag = $Parent.Items.IndexOf($sender)
-                    $sender.Header = $LockUnlockButtonHeaderLocked
-                    $sender.Icon = $LockUnlockButtonIconLocked
-                    Remove-ChildToItemsButtonMenu ([ref]$Parent) ([ref]$sender)
-                    Add-CustomMenuChild ([ref]$Parent) ([ref]$sender)
-                }
-            }
-
-
+    $LockUnlockButton.Add_Click({ param($s, $e) Invoke-LockUnlockButtonClick $s $e })
+    # Tooltip follows the current Lock/Unlock state
+    $LockUnlockButton.Add_ToolTipOpening({
+            param($s, $e)
+            $s.ToolTip = Get-LockUnlockButtonToolTip -Button $s
         })
 
     return $LockUnlockButton
 } # function New-LockButton
+
+function Add-LockableButtonToolTip {
+    param(
+        [Parameter(Mandatory)]$Button,
+        [Parameter(Mandatory)][string]$ToolTip
+    )
+    [System.Windows.Controls.ToolTipService]::SetShowOnDisabled($Button, $true)
+    $BaseToolTip = $ToolTip
+    $Button.Add_ToolTipOpening(({
+                param($s, $e)
+                $s.ToolTip = Get-LockableToolTip -Button $s -ToolTip $BaseToolTip
+            }).GetNewClosure())
+} # function Add-LockableButtonToolTip
+
+function Get-LockableToolTip {
+    param(
+        [Parameter(Mandatory)]$Button,
+        [string]$ToolTip
+    )
+    if ($Button.IsEnabled) { return $ToolTip }
+    return "$ToolTip`n$LockedButtonToolTip"
+} # function Get-LockableToolTip
+
+function Get-DisableEnableButtonToolTip {
+    param([Parameter(Mandatory)]$Button)
+    $IsAll = $Button.Header -like '* All' -or ($Button.Tag -is [hashtable] -and $Button.Tag.IsAll)
+    $IsDisabled = $Button.Icon -eq $DisableEnableButtonIconDisabled
+    if ($IsAll) {
+        if ($IsDisabled) { return $DisableEnableButtonAllToolTipDisabled }
+        return $DisableEnableButtonAllToolTipEnabled
+    }
+    if ($IsDisabled) { return $DisableEnableButtonToolTipDisabled }
+    return $DisableEnableButtonToolTipEnabled
+} # function Get-DisableEnableButtonToolTip
+
+function Get-LockUnlockButtonToolTip {
+    param([Parameter(Mandatory)]$Button)
+    if ($Button.Icon -eq $LockUnlockButtonIconLocked) { return $LockUnlockButtonToolTipLocked }
+    return $LockUnlockButtonToolTipUnlocked
+} # function Get-LockUnlockButtonToolTip
+
+function Set-LockableButtonsState {
+    param(
+        [Parameter(Mandatory)]$LockButton,
+        [Parameter(Mandatory)][bool]$IsEnabled
+    )
+    # Only search this item's own menu, so nested child items keep their own state
+    $Menu = Find-ObjectWhere -Object ([ref]$LockButton) -FindWhere { $_.Name -eq $MenuName } -DigProperties 'Parent' -FindMax 1
+    if ($Menu -is [array]) { $Menu = $Menu[0] }
+    if (-not $Menu) { return }
+
+    $LockableButtonSuffixes = @(
+        $RandomValuesButtonNameSuffix
+        $ClearButtonNameSuffix
+        $DisableEnableButtonNameSuffix
+        $DeleteButtonNameSuffix
+    )
+
+    :suffixes foreach ($Suffix in $LockableButtonSuffixes) {
+        $Buttons = Find-ObjectWhere -Object ([ref]$Menu) -FindWhere { $_.Name -like "*_$Suffix" }
+        :buttons foreach ($Button in @($Buttons)) {
+            if ($Button) { $Button.IsEnabled = $IsEnabled }
+        } # buttons foreach
+    } # suffixes foreach
+} # function Set-LockableButtonsState
 
 function Get-IsLocked {
     param($Object)
@@ -4604,24 +4917,24 @@ Add-BaseStackPanelChild -StackPanel ([ref]$BaseWindow.Content.Content) -Child ([
 )
 
 $BaseWindow.Add_KeyDown({
-        param($sender, $e)
+        param($s, $e)
         if ($e.Key -eq 'F' -and [System.Windows.Input.Keyboard]::Modifiers -match 'Control') {
             $Focused = [System.Windows.Input.FocusManager]::GetFocusedElement($BaseWindow)
-            $TargetBtn = $null
+            $TargetButton = $null
             if ($Focused) {
                 $ParentBorder = Find-ObjectWhere -Object ([ref]$Focused) -FindWhere { $_.Name -eq $ContentHeaderBorderName } -DigProperties 'Parent' -FindMax 1
                 if ($ParentBorder) {
-                    $TargetBtn = Find-ObjectWhere -Object ([ref]$ParentBorder) -FindWhere { $_.Name -like "*$SearchButtonNameSuffix" } -FindMax 1
+                    $TargetButton = Find-ObjectWhere -Object ([ref]$ParentBorder) -FindWhere { $_.Name -like "*$SearchButtonNameSuffix" } -FindMax 1
                 }
             }
-            if (-not $TargetBtn) {
+            if (-not $TargetButton) {
                 $SearchButtons = Find-ObjectWhere -Object ([ref]$BaseWindow) -FindWhere { $_.Name -like "*$SearchButtonNameSuffix" }
                 if ($SearchButtons -and @($SearchButtons).Count -gt 0) {
-                    $TargetBtn = @($SearchButtons)[0]
+                    $TargetButton = @($SearchButtons)[0]
                 }
             }
-            if ($TargetBtn) {
-                $TargetBtn.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.MenuItem]::ClickEvent)))
+            if ($TargetButton) {
+                $TargetButton.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.MenuItem]::ClickEvent)))
                 $e.Handled = $true
             }
         }
