@@ -1,30 +1,19 @@
-<# PoshToUI
+﻿<# PoshToUI
     Project:
         - Dynamic PowerShell Object Viewer
         - UI is created using PowerShell
         - No hardcoded UI
         - No Abbrevations
 
-    To Do:
-        Content Actions
-            a. Copy - Each copy should be put into their own clipboard for their particular Type via hashtable key is type.
-            b. CopyAs: JSON, XML, CSV - Only the most recent CopyAs should put into Window's Clipboard
-            c. Pasted - only enabled when something has been Copied using CopyAs.
-
-        Array Actions
-            1 Random Values 
-                9. FUTURE FEATURE: Customize how they generate.
-            AsBlock (Delimiter*) - * Default is Comma; NewLine is always an additional delimiter (NewLine explanation in ToolTip)
-                AsBoxes - switches with AsBlock, default
-            Password
-                How to save securely?
-
-        DropDown
-            Sort
-            Search
-            Filter
-
-        Construct Button
+    To Do
+        1. Loading a QuickSet isn't populating the form, diagnose and plan
+        2. QuickSet - Save Active Search
+        3. Arrays - In an Array, when an add or delete update the Description. In between '[]' put the current count of items. For example: [EnabledCount/TotalCount]
+        4. QuickSet - Closing Window prompts if we want to Save if changes are made 
+        5. Random Values - Customize how they generate.
+        6. Array - AsBlock (Delimiter*) - * Default is Comma; NewLine is always an additional delimiter (NewLine explanation in ToolTip); When AsBlock is clicked it changes to 'Default' and vice versa
+        7. Dropdown - Sort, Search, Filter
+        8. Construct Button - Indicators
             Turns Green when it's created
                 Clears error, where ever that goes
             Turns Red when it errors
@@ -32,6 +21,7 @@
             Turns Yellow when something changes inside the form to indiciate the Object doesn't match the fields.
             Fields with values will be highlighted.
             Fields get marked as required (*) when the object requires additional fields with filled in fields.
+        10. Password - How to save securely?
 
     Test Types:
         System.String[]
@@ -68,6 +58,10 @@ $ColorSequence = @(
     '#C1B8D1'
     '#EDEAFA'
 )
+$HeaderTitleMaximizedForeground = 'Black'
+$HeaderDescriptionMaximizedForeground = '#0B132B'
+$HeaderTitleMinimizedForeground = '#4E4660'
+$HeaderDescriptionMinimizedForeground = '#635978'
 [double]$SubMenuOverlapOffset = 0
 
 
@@ -205,6 +199,12 @@ $EmptyClipboardButtonToolTip = "Copy an item of this type first"
 $CopyButtonHeader = 'Copy'
 $CopyButtonIcon = '📋'
 $CopyButtonToolTip = "Copy this item to its type clipboard"
+$CopyFullItemHeader = 'Full Item'
+$CopyFullItemIcon = '📦'
+$CopyFullItemToolTip = "Copy values, title, and UI states (minimized, locked, disabled)"
+$CopyValuesOnlyHeader = 'Values Only'
+$CopyValuesOnlyIcon = '🔤'
+$CopyValuesOnlyToolTip = "Copy only the field values without UI states"
 $CopyAsMenuHeader = 'Copy As'
 $CopyAsMenuIcon = '📄'
 $CopyAsMenuToolTip = "Copy this item to its type clipboard and as formatted text to the Windows Clipboard"
@@ -220,6 +220,8 @@ $CopyAsCsvToolTip = "Copy as CSV to the Windows Clipboard and type clipboard"
 $PasteButtonHeader = 'Paste'
 $PasteButtonIcon = '📥'
 $PasteButtonToolTip = "Paste the copied value for this type"
+$PasteFullItemToolTip = "Paste values, title, and UI states (minimized, locked, disabled)"
+$PasteValuesOnlyToolTip = "Paste only the field values and preserve existing UI states"
 
 $ButtonMenuToolTip = "More actions"
 
@@ -1374,6 +1376,7 @@ function New-ContentHeader {
         Text                = $Title
         Name                = $ContentHeaderTitleValueName
         FontSize            = $FontSizes.$WrapperType
+        Foreground          = $HeaderTitleMaximizedForeground
         HorizontalAlignment = 'Center'
         VerticalAlignment   = 'Center'
         FontWeight          = 'Bold'
@@ -1395,7 +1398,7 @@ function New-ContentHeader {
         Text                = $Description
         Name                = $ContentHeaderDescriptionValueName
         FontSize            = $FontSizes.Description
-        Foreground          = '#0B132B'
+        Foreground          = $HeaderDescriptionMaximizedForeground
         HorizontalAlignment = 'Center'
         VerticalAlignment   = 'Center'
     }
@@ -2180,7 +2183,10 @@ function Save-QuickSetFile {
 } # function Save-QuickSetFile
 
 function Get-WrapperQuickSetValue {
-    param([Parameter(Mandatory)]$Wrapper)
+    param(
+        [Parameter(Mandatory)]$Wrapper,
+        [switch]$ValuesOnly
+    )
     $Target = Resolve-QuickSetWrapper $Wrapper
     if (-not $Target) { return $null }
 
@@ -2196,7 +2202,7 @@ function Get-WrapperQuickSetValue {
         $List = [System.Collections.ArrayList]@()
         if ($Tag.ContentSlot) {
             foreach ($Child in @($Tag.ContentSlot.Children)) {
-                $ChildVal = Get-WrapperQuickSetValue -Wrapper $Child
+                $ChildVal = Get-WrapperQuickSetValue -Wrapper $Child -ValuesOnly:$ValuesOnly
                 [void]$List.Add($ChildVal)
             }
         }
@@ -2208,7 +2214,7 @@ function Get-WrapperQuickSetValue {
         foreach ($Child in @($Tag.Construct.Children)) {
             $Title = Find-Title $Child
             $ParamName = if ($Title) { ($Title.Split('-')[0]).Trim() } else { $Child.Name }
-            $ObjMap[$ParamName] = Get-WrapperQuickSetValue -Wrapper $Child
+            $ObjMap[$ParamName] = Get-WrapperQuickSetValue -Wrapper $Child -ValuesOnly:$ValuesOnly
         }
         $RawValue = $ObjMap
     }
@@ -2228,23 +2234,25 @@ function Get-WrapperQuickSetValue {
         }
     }
 
-    $IsArrayItem = Get-IsArrayItem -Wrapper $Target
-    $TitleElement = Get-WrapperHeaderTitleElement $Target
-    $HasHeader = ($null -ne $TitleElement)
-    $SelfLocked = Get-IsElementLockedSelf $Target
-    $SelfDisabled = Get-IsElementDisabledSelf $Target
-    $SelfMinMaxState = Get-WrapperMinMaxState $Target
+    if (-not $ValuesOnly) {
+        $IsArrayItem = Get-IsArrayItem -Wrapper $Target
+        $TitleElement = Get-WrapperHeaderTitleElement $Target
+        $HasHeader = ($null -ne $TitleElement)
+        $SelfLocked = Get-IsElementLockedSelf $Target
+        $SelfDisabled = Get-IsElementDisabledSelf $Target
+        $SelfMinMaxState = Get-WrapperMinMaxState $Target
 
-    if (($IsArrayItem -and $HasHeader) -or $SelfLocked -or $SelfDisabled -or ($null -ne $SelfMinMaxState)) {
-        $Envelope = [ordered]@{}
-        if ($IsArrayItem -and $HasHeader) {
-            $Envelope['displayName'] = Get-WrapperDisplayName -Wrapper $Target
+        if (($IsArrayItem -and $HasHeader) -or $SelfLocked -or $SelfDisabled -or ($null -ne $SelfMinMaxState)) {
+            $Envelope = [ordered]@{}
+            if ($IsArrayItem -and $HasHeader) {
+                $Envelope['displayName'] = Get-WrapperDisplayName -Wrapper $Target
+            }
+            if ($null -ne $SelfMinMaxState) { $Envelope['isMinimized'] = [bool]$SelfMinMaxState }
+            if ($SelfLocked) { $Envelope['isLocked'] = $true }
+            if ($SelfDisabled) { $Envelope['isDisabled'] = $true }
+            $Envelope['value'] = $RawValue
+            return $Envelope
         }
-        if ($null -ne $SelfMinMaxState) { $Envelope['isMinimized'] = [bool]$SelfMinMaxState }
-        if ($SelfLocked) { $Envelope['isLocked'] = $true }
-        if ($SelfDisabled) { $Envelope['isDisabled'] = $true }
-        $Envelope['value'] = $RawValue
-        return $Envelope
     }
 
     # The leading comma stops PowerShell from unrolling an array result
@@ -2256,10 +2264,13 @@ function Get-WrapperQuickSetValue {
 function Set-WrapperQuickSetValue {
     param(
         [Parameter(Mandatory)]$Wrapper,
-        $Value
+        $Value,
+        [switch]$ValuesOnly
     )
     $Target = Resolve-QuickSetWrapper $Wrapper
     if (-not $Target) { return }
+
+    if ($ValuesOnly -and (Get-IsElementLockedSelf $Target)) { return }
 
     $Tag = if ($Target.Tag -is [hashtable]) { $Target.Tag } else { @{} }
 
@@ -2278,37 +2289,45 @@ function Set-WrapperQuickSetValue {
     $DesiredDisabled = $false
     $HasDesiredMinimized = $false
     $DesiredMinimized = $false
+    $HasEnvelopeMetadata = $false
 
     if (($Value -is [System.Collections.IDictionary] -or $Value -is [System.Management.Automation.PSObject] -or $Value -is [System.Management.Automation.PSCustomObject]) -and $Value -isnot [array]) {
         $ValueEntry = Get-ObjectPropertyEntryCaseInsensitive -InputObject $Value -PropertyName 'Value'
-        if ($null -ne $ValueEntry) {
-            $ActualValue = $ValueEntry.Value
-        }
-
         $DisplayNameEntry = Get-ObjectPropertyEntryCaseInsensitive -InputObject $Value -PropertyName 'DisplayName'
-        if ($null -ne $DisplayNameEntry) {
-            Set-WrapperDisplayName -Wrapper $Target -DisplayName $DisplayNameEntry.Value
-        }
-
         $MinimizedEntry = Get-ObjectPropertyEntryCaseInsensitive -InputObject $Value -PropertyName 'IsMinimized'
-        if ($null -ne $MinimizedEntry -and $null -ne $MinimizedEntry.Value) {
-            $HasDesiredMinimized = $true
-            $DesiredMinimized = [bool]$MinimizedEntry.Value
-        }
-
         $LockedEntry = Get-ObjectPropertyEntryCaseInsensitive -InputObject $Value -PropertyName 'IsLocked'
-        if ($null -ne $LockedEntry) {
-            $DesiredLocked = [bool]$LockedEntry.Value
-        }
-
         $DisabledEntry = Get-ObjectPropertyEntryCaseInsensitive -InputObject $Value -PropertyName 'IsDisabled'
-        if ($null -ne $DisabledEntry) {
-            $DesiredDisabled = [bool]$DisabledEntry.Value
+
+        if ($null -ne $ValueEntry -and ($null -ne $DisplayNameEntry -or $null -ne $MinimizedEntry -or $null -ne $LockedEntry -or $null -ne $DisabledEntry)) {
+            $HasEnvelopeMetadata = $true
+            $ActualValue = $ValueEntry.Value
+
+            if (-not $ValuesOnly) {
+                if ($null -ne $DisplayNameEntry) {
+                    Set-WrapperDisplayName -Wrapper $Target -DisplayName $DisplayNameEntry.Value
+                }
+                if ($null -ne $LockedEntry) {
+                    $DesiredLocked = [bool]$LockedEntry.Value
+                }
+                if ($null -ne $DisabledEntry) {
+                    $DesiredDisabled = [bool]$DisabledEntry.Value
+                }
+            }
+
+            if ($null -ne $MinimizedEntry -and $null -ne $MinimizedEntry.Value) {
+                $HasDesiredMinimized = $true
+                $DesiredMinimized = [bool]$MinimizedEntry.Value
+            }
+        }
+        elseif ($null -ne $DisplayNameEntry -and -not $ValuesOnly) {
+            Set-WrapperDisplayName -Wrapper $Target -DisplayName $DisplayNameEntry.Value
         }
     }
 
-    # Unlock control first to permit value updates
-    Set-TargetLockedState -Target $Target -IsLocked $false
+    # Unlock control first to permit value updates when applying Full Item
+    if (-not $ValuesOnly) {
+        Set-TargetLockedState -Target $Target -IsLocked $false
+    }
 
     $Value = $ActualValue
 
@@ -2338,72 +2357,75 @@ function Set-WrapperQuickSetValue {
 
             $SetCount = [Math]::Min($List.Count, $ContentSlot.Children.Count)
             for ($i = 0; $i -lt $SetCount; $i++) {
-                Set-WrapperQuickSetValue -Wrapper $ContentSlot.Children[$i] -Value $List[$i]
+                Set-WrapperQuickSetValue -Wrapper $ContentSlot.Children[$i] -Value $List[$i] -ValuesOnly:$ValuesOnly
             }
+            return
         }
     }
-    elseif ($Tag.IsConstruct -and $Tag.Construct -and $null -ne $Value) {
-        $Construct = $Tag.Construct
-        $PropNames = if ($Value -is [System.Collections.IDictionary]) {
-            @($Value.Keys)
-        }
-        elseif ($Value -is [System.Management.Automation.PSCustomObject]) {
-            @($Value.PSObject.Properties.Name)
-        }
-        else {
-            @()
-        }
 
-        foreach ($Child in @($Construct.Children)) {
+    # Object constructor: recurse on each parameter wrapper
+    $Construct = if ($Tag.IsConstruct) { $Tag.Construct } else { $null }
+    if ($Construct) {
+        foreach ($Child in @($Tag.Construct.Children)) {
             $Title = Find-Title $Child
             $ParamName = if ($Title) { ($Title.Split('-')[0]).Trim() } else { $Child.Name }
-            $MatchedProp = $PropNames | Where-Object { $_ -eq $ParamName } | Select-Object -First 1
+            $MatchedProp = $null
+            if ($Value -is [System.Collections.IDictionary]) {
+                foreach ($Key in $Value.Keys) {
+                    if ($Key -ieq $ParamName) { $MatchedProp = $Key; break }
+                }
+            }
+            elseif ($Value) {
+                $MatchEntry = Get-ObjectPropertyEntryCaseInsensitive -InputObject $Value -PropertyName $ParamName
+                if ($MatchEntry) { $MatchedProp = $MatchEntry.Name }
+            }
             if ($MatchedProp) {
                 $PropVal = if ($Value -is [System.Collections.IDictionary]) { $Value[$MatchedProp] } else { $Value.$MatchedProp }
-                Set-WrapperQuickSetValue -Wrapper $Child -Value $PropVal
+                Set-WrapperQuickSetValue -Wrapper $Child -Value $PropVal -ValuesOnly:$ValuesOnly
+            }
+        }
+        return
+    }
+
+    # Direct content controls
+    $Content = if ($Target.Name -eq $ContentElementName) { $Target } else {
+        Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $_.Name -eq $ContentElementName } -DepthMax 0 -DepthWhere $StopAtChild -FindMax 1
+    }
+    if ($Content) {
+        Restore-ElementSearchStyle -Element $Content
+
+        switch ($Content.GetType().Name) {
+            'TextBox' {
+                $Content.Text = if ($null -ne $Value) { [string]$Value } else { '' }
+            }
+            'ComboBox' {
+                if ($null -ne $Value -and $Value -ne '') {
+                    $Content.SelectedItem = $Value
+                    if ($null -eq $Content.SelectedItem -and $Content.ItemsSource) {
+                        $MatchItem = @($Content.ItemsSource) | Where-Object { $_.ToString() -eq $Value.ToString() } | Select-Object -First 1
+                        if ($MatchItem) { $Content.SelectedItem = $MatchItem }
+                    }
+                }
+                else {
+                    $Content.SelectedItem = $null
+                    $Content.Text = ''
+                }
+            }
+            'PasswordBox' {
+                $Content.Password = if ($null -ne $Value) { [string]$Value } else { '' }
+            }
+            'RichTextBox' {
+                Set-RichTextBoxText -RichTextBox $Content -Text ([string]$Value)
             }
         }
     }
     else {
-        $Content = if ($Target.Name -eq $ContentElementName) { $Target } else {
-            Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $_.Name -eq $ContentElementName } -DepthMax 0 -DepthWhere $StopAtChild -FindMax 1
-        }
-        if ($Content) {
-            Restore-ElementSearchStyle -Element $Content
-
-            switch ($Content.GetType().Name) {
-                'TextBox' {
-                    $Content.Text = if ($null -ne $Value) { [string]$Value } else { '' }
-                }
-                'ComboBox' {
-                    if ($null -ne $Value -and $Value -ne '') {
-                        $Content.SelectedItem = $Value
-                        if ($null -eq $Content.SelectedItem -and $Content.ItemsSource) {
-                            $MatchItem = @($Content.ItemsSource) | Where-Object { $_.ToString() -eq $Value.ToString() } | Select-Object -First 1
-                            if ($MatchItem) { $Content.SelectedItem = $MatchItem }
-                        }
-                    }
-                    else {
-                        $Content.SelectedItem = $null
-                        $Content.Text = ''
-                    }
-                }
-                'PasswordBox' {
-                    $Content.Password = if ($null -ne $Value) { [string]$Value } else { '' }
-                }
-                'RichTextBox' {
-                    Set-RichTextBoxText -RichTextBox $Content -Text ([string]$Value)
-                }
-            }
-        }
-        else {
-            $DTP = Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $_.Name -eq $CustomDateTimePickerName } -DepthMax 0 -DepthWhere $StopAtChild -FindMax 1
-            if ($DTP) {
-                $DateBox = Find-ObjectWhere -Object ([ref]$DTP) -FindWhere { $_.Name -eq $ContentDateTimeDisplayTextBoxName } -FindMax 1
-                if ($DateBox) {
-                    Restore-ElementSearchStyle -Element $DateBox
-                    $DateBox.Text = if ($null -ne $Value) { [string]$Value } else { '' }
-                }
+        $DTP = Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $_.Name -eq $CustomDateTimePickerName } -DepthMax 0 -DepthWhere $StopAtChild -FindMax 1
+        if ($DTP) {
+            $DateBox = Find-ObjectWhere -Object ([ref]$DTP) -FindWhere { $_.Name -eq $ContentDateTimeDisplayTextBoxName } -FindMax 1
+            if ($DateBox) {
+                Restore-ElementSearchStyle -Element $DateBox
+                $DateBox.Text = if ($null -ne $Value) { [string]$Value } else { '' }
             }
         }
     }
@@ -2411,8 +2433,10 @@ function Set-WrapperQuickSetValue {
     if ($HasDesiredMinimized) {
         Set-TargetMinMaxState -Target $Target -IsMinimized $DesiredMinimized
     }
-    Set-TargetDisabledState -Target $Target -IsDisabled $DesiredDisabled
-    Set-TargetLockedState -Target $Target -IsLocked $DesiredLocked
+    if (-not $ValuesOnly) {
+        Set-TargetDisabledState -Target $Target -IsDisabled $DesiredDisabled
+        Set-TargetLockedState -Target $Target -IsLocked $DesiredLocked
+    }
 } # function Set-WrapperQuickSetValue
 
 function Clear-WrapperQuickSetValue {
@@ -4403,6 +4427,10 @@ function Set-ContentSlotCollapseState {
         $ContentHeaderBorder,
         [Parameter(Mandatory = $true)][bool]$Collapse
     )
+    if (-not $ContentHeaderBorder -and $MinMaxButton) {
+        $ContentHeaderBorder = Find-ObjectWhere -Object ([ref]$MinMaxButton) -FindWhere { $_.Name -eq $ContentHeaderBorderName } -DigProperties 'Parent' -FindMax 1
+    }
+
     if ($Collapse) {
         $ContentSlotElement.Visibility = 'Collapsed'
         $MinMaxButton.Header = $MinMaxButtonMaxedIcon
@@ -4418,6 +4446,37 @@ function Set-ContentSlotCollapseState {
         $ContentSlotElement.Visibility = 'Visible'
         $MinMaxButton.Header = $MinMaxButtonMinedIcon
         $MinMaxButton.ToolTip = $MinMaxButtonMinedToolTip
+    }
+
+    if ($ContentHeaderBorder) {
+        $TitleDock = Find-ObjectWhere -Object ([ref]$ContentHeaderBorder) -FindWhere { $_.Name -eq $ContentHeaderTitleBorderDockName } -FindMax 1
+        if ($TitleDock -is [array]) { $TitleDock = $TitleDock[0] }
+        if ($TitleDock) {
+            $HeaderTitle = Find-ObjectWhere -Object ([ref]$TitleDock) -FindWhere { $_.Name -eq $ContentHeaderTitleValueName } -FindMax 1
+            if ($HeaderTitle -is [array]) { $HeaderTitle = $HeaderTitle[0] }
+            $HeaderDesc = Find-ObjectWhere -Object ([ref]$TitleDock) -FindWhere { $_.Name -eq $ContentHeaderDescriptionValueName } -FindMax 1
+            if ($HeaderDesc -is [array]) { $HeaderDesc = $HeaderDesc[0] }
+
+            $TargetTitleFg = if ($Collapse) { $HeaderTitleMinimizedForeground } else { $HeaderTitleMaximizedForeground }
+            $TargetDescFg = if ($Collapse) { $HeaderDescriptionMinimizedForeground } else { $HeaderDescriptionMaximizedForeground }
+
+            if ($HeaderTitle) {
+                if (-not [string]::IsNullOrEmpty($HeaderTitle.Uid) -and $SearchOriginalStyles.ContainsKey($HeaderTitle.Uid) -and $SearchOriginalStyles[$HeaderTitle.Uid].Type -eq 'TextBlock') {
+                    $SearchOriginalStyles[$HeaderTitle.Uid].Foreground = $TargetTitleFg
+                }
+                else {
+                    $HeaderTitle.Foreground = $TargetTitleFg
+                }
+            }
+            if ($HeaderDesc) {
+                if (-not [string]::IsNullOrEmpty($HeaderDesc.Uid) -and $SearchOriginalStyles.ContainsKey($HeaderDesc.Uid) -and $SearchOriginalStyles[$HeaderDesc.Uid].Type -eq 'TextBlock') {
+                    $SearchOriginalStyles[$HeaderDesc.Uid].Foreground = $TargetDescFg
+                }
+                else {
+                    $HeaderDesc.Foreground = $TargetDescFg
+                }
+            }
+        }
     }
 } # function Set-ContentSlotCollapseState
 
@@ -5291,14 +5350,20 @@ function Update-WrapperPasteButtonState {
 } # function Update-WrapperPasteButtonState
 
 function Save-WrapperToTypeClipboard {
-    param([Parameter(Mandatory)]$Wrapper)
+    param(
+        [Parameter(Mandatory)]$Wrapper,
+        [switch]$ValuesOnly
+    )
     $Target = Resolve-QuickSetWrapper $Wrapper
     if (-not $Target) { return $null }
 
     $TypeKey = Get-WrapperTypeClipboardKey -Wrapper $Target
-    $CurrentValue = Get-WrapperQuickSetValue -Wrapper $Target
+    $CurrentValue = Get-WrapperQuickSetValue -Wrapper $Target -ValuesOnly:$ValuesOnly
     $JsonSnapshot = ConvertTo-Json -InputObject $CurrentValue -Depth 20
-    $TypeClipboard[$TypeKey] = $JsonSnapshot
+    $TypeClipboard[$TypeKey] = @{
+        Json       = $JsonSnapshot
+        ValuesOnly = [bool]$ValuesOnly
+    }
 
     if ($BaseWindow) {
         $AllPasteButtons = Find-ObjectWhere -Object ([ref]$BaseWindow) -FindWhere { $_.Name -like "*_$PasteButtonNameSuffix" }
@@ -5410,10 +5475,18 @@ function Convert-WrapperValueToTextFormat {
 } # function Convert-WrapperValueToTextFormat
 
 function Invoke-CopyButtonClick {
-    param($s, $e)
-    $ContentWrapper = Get-ContentWrapperFromButton -Button $s -Suffix $CopyButtonNameSuffix
+    param($s, $e, [string]$ActionFrom)
+    $TargetSender = Resolve-TargetElement $s
+    if (-not $TargetSender) { return }
+
+    $ContentWrapper = if ($ActionFrom) {
+        Resolve-TargetElement (Find-ObjectWhere -Object ([ref]$TargetSender) -FindWhere { $_.Name -eq $ActionFrom } -DigProperties 'Parent' -FindMax 1)
+    }
+    else {
+        Get-ContentWrapperFromButton -Button $TargetSender -Suffix $CopyButtonNameSuffix
+    }
     if (-not $ContentWrapper) {
-        $ContentWrapper = Get-ParentWrapperBorder -Element $s
+        $ContentWrapper = Get-ParentWrapperBorder -Element $TargetSender
     }
     if (-not $ContentWrapper) { return }
     $null = Save-WrapperToTypeClipboard -Wrapper $ContentWrapper
@@ -5424,7 +5497,8 @@ function Invoke-CopyAsButtonClick {
         $s,
         $e,
         [Parameter(Mandatory)][string]$ActionFrom,
-        [Parameter(Mandatory)][ValidateSet('JSON', 'XML', 'CSV')][string]$Format
+        [Parameter(Mandatory)][ValidateSet('JSON', 'XML', 'CSV')][string]$Format,
+        [switch]$ValuesOnly
     )
     $TargetSender = Resolve-TargetElement $s
     if (-not $TargetSender) { return }
@@ -5435,17 +5509,30 @@ function Invoke-CopyAsButtonClick {
     }
     if (-not $ContentWrapper) { return }
 
-    $CapturedValue = Save-WrapperToTypeClipboard -Wrapper $ContentWrapper
+    $CapturedValue = Save-WrapperToTypeClipboard -Wrapper $ContentWrapper -ValuesOnly:$ValuesOnly
     $FormattedText = Convert-WrapperValueToTextFormat -Value $CapturedValue -Format $Format
     if ($null -eq $FormattedText) { $FormattedText = '' }
     [System.Windows.Clipboard]::SetText([string]$FormattedText)
 } # function Invoke-CopyAsButtonClick
 
 function Invoke-PasteButtonClick {
-    param($s, $e)
-    $ContentWrapper = Get-ContentWrapperFromButton -Button $s -Suffix $PasteButtonNameSuffix
+    param(
+        $s,
+        $e,
+        [string]$ActionFrom,
+        [switch]$ValuesOnly
+    )
+    $TargetSender = Resolve-TargetElement $s
+    if (-not $TargetSender) { return }
+
+    $ContentWrapper = if ($ActionFrom) {
+        Resolve-TargetElement (Find-ObjectWhere -Object ([ref]$TargetSender) -FindWhere { $_.Name -eq $ActionFrom } -DigProperties 'Parent' -FindMax 1)
+    }
+    else {
+        Get-ContentWrapperFromButton -Button $TargetSender -Suffix $PasteButtonNameSuffix
+    }
     if (-not $ContentWrapper) {
-        $ContentWrapper = Get-ParentWrapperBorder -Element $s
+        $ContentWrapper = Get-ParentWrapperBorder -Element $TargetSender
     }
     if (-not $ContentWrapper) { return }
     if (Get-IsElementLockedSelf $ContentWrapper) { return }
@@ -5453,9 +5540,13 @@ function Invoke-PasteButtonClick {
     $TypeKey = Get-WrapperTypeClipboardKey -Wrapper $ContentWrapper
     if (-not ($TypeClipboard -is [hashtable]) -or -not $TypeClipboard.ContainsKey($TypeKey)) { return }
 
-    $JsonSnapshot = $TypeClipboard[$TypeKey]
+    $Entry = $TypeClipboard[$TypeKey]
+    $JsonSnapshot = if ($Entry -is [hashtable] -and $Entry.ContainsKey('Json')) { $Entry.Json } else { [string]$Entry }
+    $IsSnapshotValuesOnly = if ($Entry -is [hashtable] -and $Entry.ContainsKey('ValuesOnly')) { [bool]$Entry.ValuesOnly } else { $false }
+    $EffectiveValuesOnly = ([bool]$ValuesOnly) -or $IsSnapshotValuesOnly
+
     $ClonedValue = if ([string]::IsNullOrEmpty($JsonSnapshot)) { $null } else { ConvertFrom-Json -InputObject $JsonSnapshot }
-    Set-WrapperQuickSetValue -Wrapper $ContentWrapper -Value $ClonedValue
+    Set-WrapperQuickSetValue -Wrapper $ContentWrapper -Value $ClonedValue -ValuesOnly:$EffectiveValuesOnly
 } # function Invoke-PasteButtonClick
 
 function Get-PasteButtonToolTip {
@@ -5467,6 +5558,52 @@ function Get-PasteButtonToolTip {
     }
     return "$PasteButtonToolTip`n$EmptyClipboardButtonToolTip"
 } # function Get-PasteButtonToolTip
+
+function Add-CopyScopeMenuItems {
+    param(
+        [Parameter(Mandatory)]$ParentMenuItem,
+        [Parameter(Mandatory)][string]$ActionFrom,
+        [string]$Format = $null
+    )
+    $FullItem = New-BaseMenuItem @{
+        Header        = $CopyFullItemHeader
+        Icon          = $CopyFullItemIcon
+        ToolTip       = $CopyFullItemToolTip
+        FlowDirection = 'LeftToRight'
+    }
+    $ValuesItem = New-BaseMenuItem @{
+        Header        = $CopyValuesOnlyHeader
+        Icon          = $CopyValuesOnlyIcon
+        ToolTip       = $CopyValuesOnlyToolTip
+        FlowDirection = 'LeftToRight'
+    }
+
+    $BoundActionFrom = $ActionFrom
+    $BoundFormat = $Format
+
+    $FullItem.Add_Click(({
+                param($s, $e)
+                if ([string]::IsNullOrEmpty($BoundFormat)) {
+                    Invoke-CopyButtonClick -s $s -e $e -ActionFrom $BoundActionFrom
+                }
+                else {
+                    Invoke-CopyAsButtonClick -s $s -e $e -ActionFrom $BoundActionFrom -Format $BoundFormat
+                }
+            }).GetNewClosure())
+
+    $ValuesItem.Add_Click(({
+                param($s, $e)
+                if ([string]::IsNullOrEmpty($BoundFormat)) {
+                    Invoke-CopyButtonClick -s $s -e $e -ActionFrom $BoundActionFrom -ValuesOnly
+                }
+                else {
+                    Invoke-CopyAsButtonClick -s $s -e $e -ActionFrom $BoundActionFrom -Format $BoundFormat -ValuesOnly
+                }
+            }).GetNewClosure())
+
+    $ParentMenuItem.Items.Add($FullItem) | Out-Null
+    $ParentMenuItem.Items.Add($ValuesItem) | Out-Null
+} # function Add-CopyScopeMenuItems
 
 function New-CopyButton {
     param([string]$ActionFrom = $ContentHeaderBorderName)
@@ -5505,12 +5642,7 @@ function New-CopyAsMenuItem {
             ToolTip       = $Fmt.ToolTip
             FlowDirection = 'LeftToRight'
         }
-        $BoundActionFrom = $ActionFrom
-        $BoundFormat = $Fmt.Format
-        $FmtItem.Add_Click(({
-                    param($s, $e)
-                    Invoke-CopyAsButtonClick -s $s -e $e -ActionFrom $BoundActionFrom -Format $BoundFormat
-                }).GetNewClosure())
+        Add-CopyScopeMenuItems -ParentMenuItem $FmtItem -ActionFrom $ActionFrom -Format $Fmt.Format
         $CopyAsMenu.Items.Add($FmtItem) | Out-Null
     }
 
@@ -5527,11 +5659,37 @@ function New-PasteButton {
         IsEnabled = $false
     }
     [System.Windows.Controls.ToolTipService]::SetShowOnDisabled($PasteButton, $true)
-    $PasteButton.Add_Click({ param($s, $e) Invoke-PasteButtonClick $s $e })
     $PasteButton.Add_ToolTipOpening({
             param($s, $e)
             $s.ToolTip = Get-PasteButtonToolTip -Button $s
         })
+
+    $FullItem = New-BaseMenuItem @{
+        Header        = $CopyFullItemHeader
+        Icon          = $CopyFullItemIcon
+        ToolTip       = $PasteFullItemToolTip
+        FlowDirection = 'LeftToRight'
+    }
+    $ValuesItem = New-BaseMenuItem @{
+        Header        = $CopyValuesOnlyHeader
+        Icon          = $CopyValuesOnlyIcon
+        ToolTip       = $PasteValuesOnlyToolTip
+        FlowDirection = 'LeftToRight'
+    }
+
+    $BoundActionFrom = $ActionFrom
+    $FullItem.Add_Click(({
+                param($s, $e)
+                Invoke-PasteButtonClick -s $s -e $e -ActionFrom $BoundActionFrom
+            }).GetNewClosure())
+    $ValuesItem.Add_Click(({
+                param($s, $e)
+                Invoke-PasteButtonClick -s $s -e $e -ActionFrom $BoundActionFrom -ValuesOnly
+            }).GetNewClosure())
+
+    $PasteButton.Items.Add($FullItem) | Out-Null
+    $PasteButton.Items.Add($ValuesItem) | Out-Null
+
     return $PasteButton
 } # function New-PasteButton
 
