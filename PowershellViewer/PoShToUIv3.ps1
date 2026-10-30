@@ -1,4 +1,4 @@
-﻿<# PoshToUI
+<# PoshToUI
     Project:
         - Dynamic PowerShell Object Viewer
         - UI is created using PowerShell
@@ -303,6 +303,14 @@ $QuickSetDeleteButtonToolTip = "Permanently delete the active QuickSet file`nLoa
 
 $SearchOriginalStyles = @{}
 $TypeClipboard = @{}
+$script:TypeConstructorsCache = @{}
+[bool]$script:EnableFunctionProfiling = $true
+[double]$script:FunctionMeasurementConsoleMinimumMilliseconds = 10.0
+$script:FunctionMeasurements = @{}
+
+$script:FunctionMeasurementHistory = @{}
+$script:FunctionMeasurementDurations = @{}
+[int]$script:FunctionExecutionSequence = 0
 
 #endregion #0 Variables
 
@@ -316,6 +324,102 @@ Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop
 
 
 #region #0 PowerShell Helper Functions
+
+function Start-FunctionMeasurement {
+    param([Parameter(Mandatory = $true)][string]$FunctionName)
+    if (-not $script:EnableFunctionProfiling) { return }
+    if (-not $script:FunctionMeasurements.ContainsKey($FunctionName)) {
+        $script:FunctionMeasurements[$FunctionName] = [System.Collections.ArrayList]@()
+    }
+    [void]$script:FunctionMeasurements[$FunctionName].Add([System.Diagnostics.Stopwatch]::GetTimestamp())
+
+} # function Start-FunctionMeasurement
+
+function Stop-FunctionMeasurement {
+    param([Parameter(Mandatory = $true)][string]$FunctionName)
+    if (-not $script:EnableFunctionProfiling) { return }
+
+    if (-not $script:FunctionMeasurements.ContainsKey($FunctionName)) { return }
+    $Times = $script:FunctionMeasurements[$FunctionName]
+    if ($null -eq $Times -or $Times.Count -eq 0) { return }
+
+    $StartTime = $Times[-1]
+    $Times.RemoveAt($Times.Count - 1)
+
+    $ElapsedMilliseconds = (([System.Diagnostics.Stopwatch]::GetTimestamp() - $StartTime) / [System.Diagnostics.Stopwatch]::Frequency) * 1000
+
+    # Aggregate measurement history for summary reporting
+    if (-not $script:FunctionMeasurementDurations.ContainsKey($FunctionName)) {
+        $script:FunctionMeasurementDurations[$FunctionName] = [System.Collections.Generic.List[double]]::new()
+    }
+    $script:FunctionMeasurementDurations[$FunctionName].Add($ElapsedMilliseconds)
+
+    if (-not $script:FunctionMeasurementHistory.ContainsKey($FunctionName)) {
+        $script:FunctionExecutionSequence++
+        $script:FunctionMeasurementHistory[$FunctionName] = [PSCustomObject]@{
+            Sequence            = [int]$script:FunctionExecutionSequence
+            Function            = $FunctionName
+            Calls               = [int]0
+            TotalMilliseconds   = [double]0
+            AverageMilliseconds = [double]0
+            MedianMilliseconds  = [double][Math]::Round($ElapsedMilliseconds, 3)
+            MinMilliseconds     = [double][Math]::Round($ElapsedMilliseconds, 3)
+            MaxMilliseconds     = [double][Math]::Round($ElapsedMilliseconds, 3)
+        }
+    }
+    $History = $script:FunctionMeasurementHistory[$FunctionName]
+    $History.Calls++
+    $History.TotalMilliseconds = [Math]::Round(($History.TotalMilliseconds + $ElapsedMilliseconds), 3)
+    $History.AverageMilliseconds = [Math]::Round(($History.TotalMilliseconds / $History.Calls), 3)
+    if ($History.Calls -eq 1) { $History.MedianMilliseconds = [Math]::Round($ElapsedMilliseconds, 3) }
+    if ($ElapsedMilliseconds -lt $History.MinMilliseconds) { $History.MinMilliseconds = [Math]::Round($ElapsedMilliseconds, 3) }
+    if ($ElapsedMilliseconds -gt $History.MaxMilliseconds) { $History.MaxMilliseconds = [Math]::Round($ElapsedMilliseconds, 3) }
+
+    $TierColor = if ($ElapsedMilliseconds -gt 100) { 'Red' } elseif ($ElapsedMilliseconds -ge 15) { 'Yellow' } else { 'DarkGreen' }
+    if ($ElapsedMilliseconds -ge $script:FunctionMeasurementConsoleMinimumMilliseconds) {
+        Write-Host ("[{0,4}] [{1,-35}] Duration: {2,9:N3} milliseconds" -f $History.Sequence, $FunctionName, $ElapsedMilliseconds) -ForegroundColor $TierColor
+    }
+} # function Stop-FunctionMeasurement
+
+function Get-FunctionMeasurementSummary {
+    [CmdletBinding()]
+    param(
+        [string]$SortBy = 'TotalMilliseconds',
+        [switch]$Descending = $true,
+        [switch]$Clear
+    )
+    if ($Clear) {
+        $script:FunctionMeasurementHistory.Clear()
+        if ($script:FunctionMeasurementDurations) { $script:FunctionMeasurementDurations.Clear() }
+        $script:FunctionExecutionSequence = 0
+        Write-Host "Function measurement history cleared." -ForegroundColor Cyan
+        return
+    }
+    if ($script:FunctionMeasurementHistory.Count -eq 0) {
+        Write-Host "No function measurements recorded." -ForegroundColor Gray
+        return
+    }
+    foreach ($Item in $script:FunctionMeasurementHistory.Values) {
+        $FnName = $Item.Function
+        if ($script:FunctionMeasurementDurations.ContainsKey($FnName)) {
+            $Durations = $script:FunctionMeasurementDurations[$FnName]
+            $Count = $Durations.Count
+            if ($Count -gt 0) {
+                $Sorted = [double[]]$Durations.ToArray()
+                [System.Array]::Sort($Sorted)
+                if ($Count % 2 -eq 1) {
+                    $Mid = [int][Math]::Floor($Count / 2)
+                    $Item.MedianMilliseconds = [Math]::Round($Sorted[$Mid], 3)
+                } else {
+                    $Mid = [int]($Count / 2)
+                    $Item.MedianMilliseconds = [Math]::Round((($Sorted[$Mid - 1] + $Sorted[$Mid]) / 2.0), 3)
+                }
+            }
+        }
+    }
+    $Results = @($script:FunctionMeasurementHistory.Values) | Sort-Object -Property $SortBy -Descending:$Descending
+    return $Results
+} # function Get-FunctionMeasurementSummary
 
 function ViewUI {
     param(
@@ -351,6 +455,7 @@ function Get-UniqueByProperty {
         [Parameter(ValueFromPipeline)]$HashArr
     )
     begin {
+        Start-FunctionMeasurement -FunctionName "Get-UniqueByProperty"
         $PropertyArr = [System.Collections.ArrayList]@()
         $Return = @{
             List    = [System.Collections.ArrayList]@()
@@ -371,14 +476,17 @@ function Get-UniqueByProperty {
     end {
         if ($Return.List.count -eq 0) { $Return.list.Clear() }
         if ($Return.Removed.count -eq 0) { $Return.Removed.clear() }
+        Stop-FunctionMeasurement -FunctionName "Get-UniqueByProperty"
         return $Return
     }
 } # function Get-UniqueByProperty
 
 function Resolve-TargetElement {
     param($Element)
+    Start-FunctionMeasurement -FunctionName "Resolve-TargetElement"
     $Target = if ($Element -is [System.Management.Automation.PSReference]) { $Element.Value } else { $Element }
     if ($Target -is [array]) { $Target = $Target[0] }
+    Stop-FunctionMeasurement -FunctionName "Resolve-TargetElement"
     return $Target
 } # function Resolve-TargetElement
 
@@ -387,6 +495,7 @@ function Get-ObjectPropertyEntryCaseInsensitive {
         $InputObject,
         [Parameter(Mandatory = $true)][string]$PropertyName
     )
+    Start-FunctionMeasurement -FunctionName "Get-ObjectPropertyEntryCaseInsensitive"
     if ($null -eq $InputObject) { return $null }
 
     if ($InputObject -is [System.Collections.IDictionary]) {
@@ -406,6 +515,7 @@ function Get-ObjectPropertyEntryCaseInsensitive {
         }
     }
 
+    Stop-FunctionMeasurement -FunctionName "Get-ObjectPropertyEntryCaseInsensitive"
     return $null
 } # function Get-ObjectPropertyEntryCaseInsensitive
 
@@ -414,6 +524,8 @@ function Test-ObjectPropertyCaseInsensitive {
         $InputObject,
         [Parameter(Mandatory = $true)][string]$PropertyName
     )
+    Start-FunctionMeasurement -FunctionName "Test-ObjectPropertyCaseInsensitive"
+    Stop-FunctionMeasurement -FunctionName "Test-ObjectPropertyCaseInsensitive"
     return ($null -ne (Get-ObjectPropertyEntryCaseInsensitive -InputObject $InputObject -PropertyName $PropertyName))
 } # function Test-ObjectPropertyCaseInsensitive
 
@@ -422,19 +534,24 @@ function Get-ObjectPropertyCaseInsensitive {
         $InputObject,
         [Parameter(Mandatory = $true)][string]$PropertyName
     )
+    Start-FunctionMeasurement -FunctionName "Get-ObjectPropertyCaseInsensitive"
     $Entry = Get-ObjectPropertyEntryCaseInsensitive -InputObject $InputObject -PropertyName $PropertyName
     if ($null -ne $Entry) { return $Entry.Value }
+    Stop-FunctionMeasurement -FunctionName "Get-ObjectPropertyCaseInsensitive"
     return $null
 } # function Get-ObjectPropertyCaseInsensitive
 
 function Test-IsQuickSetWrapper {
     param($Element)
+    Start-FunctionMeasurement -FunctionName "Test-IsQuickSetWrapper"
     # A wrapper is any element whose Tag was stamped with 'IsArray' by New-TypeContent
+    Stop-FunctionMeasurement -FunctionName "Test-IsQuickSetWrapper"
     return ($null -ne $Element -and $Element.Tag -is [hashtable] -and $Element.Tag.ContainsKey('IsArray'))
 } # function Test-IsQuickSetWrapper
 
 function Resolve-QuickSetWrapper {
     param($Element)
+    Start-FunctionMeasurement -FunctionName "Resolve-QuickSetWrapper"
     $Target = Resolve-TargetElement $Element
     if (-not $Target) { return $null }
 
@@ -450,6 +567,7 @@ function Resolve-QuickSetWrapper {
     if ($Found) { return (Resolve-TargetElement $Found) }
 
     # 4. Nothing stamped was found; fall back to the element given
+    Stop-FunctionMeasurement -FunctionName "Resolve-QuickSetWrapper"
     return $Target
 } # function Resolve-QuickSetWrapper
 
@@ -473,6 +591,7 @@ function Find-ObjectWhere {
         [int]$FindMax = -1,
         [int]$AlreadyFound = 0
     )
+    Start-FunctionMeasurement -FunctionName "Find-ObjectWhere"
     $Found = @()
     $RecurseCount = 0
     :DigProperties foreach ($DigProperty in $DigProperties) {
@@ -517,8 +636,10 @@ function Find-ObjectWhere {
     } # DigProperties
     if ($Found.count -gt 0) {
         #Write-Host "[$(Get-Date)] {Find-ObjectWhere} [$($Object.Value.Name)] D:$Depth\$DepthMax`:$RecurseCount - $($Found.Name -join ', ') F:$AlreadyFound/$FindMax" -ForegroundColor Magenta
+        Stop-FunctionMeasurement -FunctionName "Find-ObjectWhere"
         return $Found
     }
+    Stop-FunctionMeasurement -FunctionName "Find-ObjectWhere"
 } # function Find-ObjectWhere
 
 function Find-Title {
@@ -527,6 +648,7 @@ function Find-Title {
         $Object
     )
     process {
+        Start-FunctionMeasurement -FunctionName "Find-Title"
         if ($Object.Name -eq $ContentHeaderBorderName) { $ContentHeaderBorder = $Object }
         else {
             $ContentHeaderBorder = Find-ObjectWhere -Object ([ref]$Object) -FindWhere { $_.Name -eq $ContentHeaderBorderName } -DigProperties 'Parent' -FindMax 1
@@ -534,7 +656,9 @@ function Find-Title {
         $ContentHeaderTitleBorderDock = Find-ObjectWhere -Object ([ref]$ContentHeaderBorder) -FindWhere { $_.Name -eq $ContentHeaderTitleBorderDockName } -FindMax 1
         $ContentHeaderTitleValue = Find-ObjectWhere -Object ([ref]$ContentHeaderTitleBorderDock) -FindWhere { $_.Name -eq $ContentHeaderTitleValueName } -FindMax 1
         $ContentHeaderDescriptionValue = Find-ObjectWhere -Object ([ref]$ContentHeaderTitleBorderDock) -FindWhere { $_.Name -eq $ContentHeaderDescriptionValueName } -FindMax 1
-        "$($ContentHeaderTitleValue.Text) - $($ContentHeaderDescriptionValue.Text)"
+        $TitleResult = "$($ContentHeaderTitleValue.Text) - $($ContentHeaderDescriptionValue.Text)"
+        Stop-FunctionMeasurement -FunctionName "Find-Title"
+        $TitleResult
     }
 } # function Find-Title
 
@@ -543,10 +667,12 @@ function Get-ContentWrapperFromButton {
         [Parameter(Mandatory)]$Button,
         [Parameter(Mandatory)][string]$Suffix
     )
+    Start-FunctionMeasurement -FunctionName "Get-ContentWrapperFromButton"
     $TargetButton = Resolve-TargetElement $Button
     if (-not $TargetButton -or -not $TargetButton.Name) { return $null }
     $ExpectedWrapperName = $TargetButton.Name.Replace("_$Suffix", '')
     $ContentWrapper = Find-ObjectWhere -Object ([ref]$TargetButton) -FindWhere { $_.Name -eq $ExpectedWrapperName } -DigProperties 'Parent' -FindMax 1
+    Stop-FunctionMeasurement -FunctionName "Get-ContentWrapperFromButton"
     return (Resolve-TargetElement $ContentWrapper)
 } # function Get-ContentWrapperFromButton
 
@@ -555,25 +681,33 @@ function Get-ParentWrapperBorder {
         [Parameter(Mandatory)]$Element,
         [switch]$HeaderOnly
     )
+    Start-FunctionMeasurement -FunctionName "Get-ParentWrapperBorder"
     $Target = Resolve-TargetElement $Element
     if (-not $Target) { return $null }
     $TargetNames = if ($HeaderOnly) { @($ContentHeaderBorderName) } else { @($ContentHeaderBorderName, $ContentBorderName) }
     $Found = Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $TargetNames -contains $_.Name } -DigProperties 'Parent' -FindMax 1
+    Stop-FunctionMeasurement -FunctionName "Get-ParentWrapperBorder"
     return (Resolve-TargetElement $Found)
 } # function Get-ParentWrapperBorder
 
 function Get-WrapperMenu {
     param([Parameter(Mandatory)]$Wrapper)
+    Start-FunctionMeasurement -FunctionName "Get-WrapperMenu"
     $Target = Resolve-TargetElement $Wrapper
     if (-not $Target) { return $null }
     if ($Target.Name -eq $MenuName) { return $Target }
     if ($Target.Name -eq $ButtonMenuName) { return $Target.Parent }
+    if ($Target.Tag -is [hashtable] -and $Target.Tag.ContainsKey('Menu') -and $Target.Tag.Menu) {
+        return (Resolve-TargetElement $Target.Tag.Menu)
+    }
     $Found = Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $_.Name -eq $MenuName } -DepthMax 1 -DepthWhere { $_.Name -eq $ContentSlotElementName } -FindMax 1
+    Stop-FunctionMeasurement -FunctionName "Get-WrapperMenu"
     return (Resolve-TargetElement $Found)
 } # function Get-WrapperMenu
 
 function Get-WrapperContentSlot {
     param([Parameter(Mandatory)]$Wrapper)
+    Start-FunctionMeasurement -FunctionName "Get-WrapperContentSlot"
     $Target = Resolve-TargetElement $Wrapper
     if (-not $Target) { return $null }
     if ($Target.Name -eq $ContentSlotElementName) { return $Target }
@@ -581,6 +715,7 @@ function Get-WrapperContentSlot {
         return (Resolve-TargetElement $Target.Tag.ContentSlot)
     }
     $Found = Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $_.Name -eq $ContentSlotElementName } -DepthMax 1 -DepthWhere { $_.Name -eq $ContentSlotElementName } -FindMax 1
+    Stop-FunctionMeasurement -FunctionName "Get-WrapperContentSlot"
     return (Resolve-TargetElement $Found)
 } # function Get-WrapperContentSlot
 
@@ -589,6 +724,7 @@ function Set-RichTextBoxText {
         [Parameter(Mandatory)]$RichTextBox,
         [string]$Text = $null
     )
+    Start-FunctionMeasurement -FunctionName 'Set-RichTextBoxText'
     $Paragraph = New-Object System.Windows.Documents.Paragraph
     $Paragraph.Margin = '0'
     if (-not [string]::IsNullOrEmpty($Text)) {
@@ -596,12 +732,15 @@ function Set-RichTextBoxText {
     }
     $RichTextBox.Document.Blocks.Clear()
     $RichTextBox.Document.Blocks.Add($Paragraph)
+
+    Stop-FunctionMeasurement -FunctionName 'Set-RichTextBoxText'
 } # function Set-RichTextBoxText
 
 function Get-CustomDateTimePickers {
     param(
         [Parameter(Mandatory)]$Wrapper
     )
+    Start-FunctionMeasurement -FunctionName "Get-CustomDateTimePickers"
     $Target = Resolve-TargetElement $Wrapper
     if (-not $Target) { return @() }
     $Pickers = [System.Collections.ArrayList]@()
@@ -614,6 +753,7 @@ function Get-CustomDateTimePickers {
             [void]$Pickers.Add($Picker)
         }
     }
+    Stop-FunctionMeasurement -FunctionName "Get-CustomDateTimePickers"
     return @($Pickers)
 } # function Get-CustomDateTimePickers
 
@@ -625,16 +765,19 @@ function Get-CustomDateTimePickers {
 
 function Add-BaseStackPanelChild {
     param( [ref]$StackPanel, [ref]$Child )
+    Start-FunctionMeasurement -FunctionName "Add-BaseStackPanelChild"
     try {
         $StackPanel.Value.AddChild($Child.Value)
     }
     catch {
         Write-Host "{Add-BaseStackPanelChild} $_" -ForegroundColor Red
     }
+    Stop-FunctionMeasurement -FunctionName "Add-BaseStackPanelChild"
 } # function Add-BaseStackPanelChild
 
 function Add-BaseDockPanelChild {
     param( [ref]$DockPanel, [ref]$Child, [System.Windows.Controls.Dock]$DockTo )
+    Start-FunctionMeasurement -FunctionName "Add-BaseDockPanelChild"
     try {
         $DockPanel.Value.AddChild($Child.Value)
         if ($DockTo) { [System.Windows.Controls.DockPanel]::SetDock($Child.Value, $DockTo) }
@@ -642,16 +785,19 @@ function Add-BaseDockPanelChild {
     catch {
         Write-Host "{Add-BaseDockPanelChild} $_" -ForegroundColor Red
     }
+    Stop-FunctionMeasurement -FunctionName "Add-BaseDockPanelChild"
 } # function Add-BaseDockPanelChild
 
 function Add-BaseMenuChild {
     param( [ref]$Menu, [ref]$Child, [int]$Index = 0 )
+    Start-FunctionMeasurement -FunctionName "Add-BaseMenuChild"
     try {
         $Menu.Value.Items.Insert($Index, $Child.Value)
     }
     catch {
         Write-Host "{Add-BaseMenuChild} $_" -ForegroundColor Red
     }
+    Stop-FunctionMeasurement -FunctionName "Add-BaseMenuChild"
 } # function Add-BaseMenuChild
 
 #endregion #2 Base UI Control Actions
@@ -660,46 +806,68 @@ function Add-BaseMenuChild {
 
 function New-BaseWindow {
     param( [hashtable]$Parameters = @{} )
+    Start-FunctionMeasurement -FunctionName 'New-BaseWindow'
     [System.Windows.Window]$Parameters
+
+    Stop-FunctionMeasurement -FunctionName 'New-BaseWindow'
 } # function New-BaseWindow
 
 function New-BaseBorder {
     param( [hashtable]$Parameters = @{} )
+    Start-FunctionMeasurement -FunctionName 'New-BaseBorder'
     [System.Windows.Controls.Border]$Parameters
+
+    Stop-FunctionMeasurement -FunctionName 'New-BaseBorder'
 } # function New-BaseBorder
 
 function New-BaseStackPanel {
     param( [hashtable]$Parameters = @{} )
+    Start-FunctionMeasurement -FunctionName 'New-BaseStackPanel'
     [System.Windows.Controls.StackPanel]$Parameters
+
+    Stop-FunctionMeasurement -FunctionName 'New-BaseStackPanel'
 } # function New-BaseStackPanel
 
 function New-BaseScrollViewer {
     param( [hashtable]$Parameters = @{} )
+    Start-FunctionMeasurement -FunctionName 'New-BaseScrollViewer'
     [System.Windows.Controls.ScrollViewer]$Parameters
+
+    Stop-FunctionMeasurement -FunctionName 'New-BaseScrollViewer'
 } # function New-BaseScrollViewer
 
 function New-BaseDockPanel {
     param( [hashtable]$Parameters = @{} )
+    Start-FunctionMeasurement -FunctionName 'New-BaseDockPanel'
     [System.Windows.Controls.DockPanel]$Parameters
+
+    Stop-FunctionMeasurement -FunctionName 'New-BaseDockPanel'
 } # function New-BaseDockPanel
 
 function New-BaseTextBox {
     param( [hashtable]$Parameters = @{} )
+    Start-FunctionMeasurement -FunctionName 'New-BaseTextBox'
     [System.Windows.Controls.TextBox]$Parameters
+
+    Stop-FunctionMeasurement -FunctionName 'New-BaseTextBox'
 } # function New-BaseTextBox
 
 function New-BaseTextBlock {
     param( [hashtable]$Parameters = @{} )
+    Start-FunctionMeasurement -FunctionName 'New-BaseTextBlock'
     try {
         [System.Windows.Controls.TextBlock]$Parameters
     }
     catch {
         Write-Host "{New-BaseTextBlock} $_" -ForegroundColor Red
     }
+
+    Stop-FunctionMeasurement -FunctionName 'New-BaseTextBlock'
 } # function New-BaseTextBlock
 
 function New-BaseRichTextBox {
     param( [hashtable]$Parameters = @{} )
+    Start-FunctionMeasurement -FunctionName 'New-BaseRichTextBox'
 
     # 1. Intercept 'Text' so WPF doesn't break trying to convert it to blocks
     $InitialText = $null
@@ -722,31 +890,46 @@ function New-BaseRichTextBox {
     $RichTextBox.Document.PagePadding = '0'
     Set-RichTextBoxText -RichTextBox $RichTextBox -Text $InitialText
 
-    return $RichTextBox
+    $ReturnValue = $RichTextBox
+    Stop-FunctionMeasurement -FunctionName 'New-BaseRichTextBox'
+    return $ReturnValue
 } # function New-BaseRichTextBox
 
 function New-BaseButton {
     param( [hashtable]$Parameters = @{} )
+    Start-FunctionMeasurement -FunctionName 'New-BaseButton'
     [System.Windows.Controls.Button]$Parameters
+
+    Stop-FunctionMeasurement -FunctionName 'New-BaseButton'
 } # function New-BaseButton
 
 function New-BaseSeparator {
     param( [hashtable]$Parameters = @{} )
+    Start-FunctionMeasurement -FunctionName 'New-BaseSeparator'
     [System.Windows.Controls.Separator]$Parameters
+
+    Stop-FunctionMeasurement -FunctionName 'New-BaseSeparator'
 } # function New-BaseSeparator
 
 function New-BaseComboBox {
     param( [hashtable]$Parameters = @{} )
+    Start-FunctionMeasurement -FunctionName 'New-BaseComboBox'
     [System.Windows.Controls.ComboBox]$Parameters
+
+    Stop-FunctionMeasurement -FunctionName 'New-BaseComboBox'
 } # function New-BaseComboBox
 
 function New-BaseMenu {
     param( [hashtable]$Parameters = @{} )
+    Start-FunctionMeasurement -FunctionName 'New-BaseMenu'
     [System.Windows.Controls.Menu]$Parameters
+
+    Stop-FunctionMeasurement -FunctionName 'New-BaseMenu'
 } # function New-BaseMenu
 
 function New-BaseMenuItem {
     param( [hashtable]$Parameters = @{} )
+    Start-FunctionMeasurement -FunctionName 'New-BaseMenuItem'
     $Parameters.FontFamily = $FontFamily
     $Parameters.Cursor = 'Hand'
     try {
@@ -764,11 +947,16 @@ function New-BaseMenuItem {
     catch {
         Write-Host "{New-BaseMenuItem} $_" -ForegroundColor Red
     }
+
+    Stop-FunctionMeasurement -FunctionName 'New-BaseMenuItem'
 } # function New-BaseMenuItem
 
 function New-BasePasswordBox {
     param( [hashtable]$Parameters = @{} )
+    Start-FunctionMeasurement -FunctionName 'New-BasePasswordBox'
     [System.Windows.Controls.PasswordBox]$Parameters
+
+    Stop-FunctionMeasurement -FunctionName 'New-BasePasswordBox'
 } # function New-BasePasswordBox
 
 #endregion #2 Base UI Control Elements
@@ -785,6 +973,7 @@ function Reset-ArrayIndexes {
     param(
         [ref]$ItemInArray
     )
+    Start-FunctionMeasurement -FunctionName "Reset-ArrayIndexes"
     $Array = $ItemInArray.Value
     if ($Array.Name -ne $ContentSlotElementName) {
         $Array = Find-ObjectWhere -Object $ItemInArray -FindWhere { $_.Name -eq $ContentSlotElementName } -DigProperties 'Parent' -FindMax 1
@@ -796,6 +985,7 @@ function Reset-ArrayIndexes {
         $IndexBlock.Text = "$($IndexCounter)"
         $IndexCounter ++
     } # IndexBlocks
+    Stop-FunctionMeasurement -FunctionName "Reset-ArrayIndexes"
 } # function Reset-ArrayIndexes
 
 function Build-Object {
@@ -803,6 +993,7 @@ function Build-Object {
         [ref]$Object,
         [Switch]$DoNotCreateIfNoParameters
     )
+    Start-FunctionMeasurement -FunctionName "Build-Object"
     $ConstructTitle, $ConstructDescription = (Find-Title $Object.Value).Split('-').Trim()
 
     $ContentHeaderBorder = Find-ObjectWhere -Object $Object -FindWhere { $_.Name -eq $ContentHeaderBorderName }
@@ -873,10 +1064,12 @@ function Build-Object {
     } # TypeConstructorsGroups
 
     Write-Host '[FIN] Build-Object'
+    Stop-FunctionMeasurement -FunctionName "Build-Object"
 } # function Build-Object
 
 function Add-ContentToWrapper {
     param( [ref]$Wrapper, [ref]$Content )
+    Start-FunctionMeasurement -FunctionName "Add-ContentToWrapper"
 
     $ContentSlot = Find-ObjectWhere -Object $Wrapper -FindWhere { $_.Name -eq $ContentSlotElementName } -FindMax 1
 
@@ -886,10 +1079,12 @@ function Add-ContentToWrapper {
     catch {
         Write-Host "[Add-ContentToWrapper] $($Wrapper.Name) $($Content.Value.Name) $($_)" -ForegroundColor Red
     }
+    Stop-FunctionMeasurement -FunctionName "Add-ContentToWrapper"
 } # function Add-ContentToWrapper
 
 function Add-CustomMenuChild {
     param( [ref]$Wrapper, [ref]$Child, [int]$Index = 0 )
+    Start-FunctionMeasurement -FunctionName "Add-CustomMenuChild"
 
     $Menu = Get-WrapperMenu -Wrapper $Wrapper
 
@@ -899,10 +1094,12 @@ function Add-CustomMenuChild {
     catch {
         Write-Host "{Add-CustomMenuChild} $_" -ForegroundColor Red
     }
+    Stop-FunctionMeasurement -FunctionName "Add-CustomMenuChild"
 } # function Add-CustomMenuChild
 
 function Remove-CustomMenuChild {
     param( [ref]$Wrapper, [ref]$Child )
+    Start-FunctionMeasurement -FunctionName "Remove-CustomMenuChild"
     $Menu = Get-WrapperMenu -Wrapper $Wrapper
     try {
         $Menu.Items.Remove($Child.Value) | Out-Null
@@ -910,10 +1107,12 @@ function Remove-CustomMenuChild {
     catch {
         Write-Host "{Remove-CustomMenuChild} $_" -ForegroundColor Red
     }
+    Stop-FunctionMeasurement -FunctionName "Remove-CustomMenuChild"
 } # function Remove-CustomMenuChild
 
 function Add-ChildToItemsButtonMenu {
     param( [ref]$Item, [ref]$Child, [int]$Index = -1 )
+    Start-FunctionMeasurement -FunctionName "Add-ChildToItemsButtonMenu"
 
     $ButtonMenu = Find-ObjectWhere -Object $Item -FindWhere { $_.Name -eq $ButtonMenuName } -FindMax 1
 
@@ -925,6 +1124,7 @@ function Add-ChildToItemsButtonMenu {
         Write-Host "{Add-ChildToItemsButtonMenu} $_" -ForegroundColor Red
     }
     $ButtonMenu.Visibility = 'Visible'
+    Stop-FunctionMeasurement -FunctionName "Add-ChildToItemsButtonMenu"
 } # function Add-ChildToItemsButtonMenu
 
 function Add-ChildrenToItemsButtonMenu {
@@ -932,15 +1132,18 @@ function Add-ChildrenToItemsButtonMenu {
         [Parameter(Mandatory)][ref]$Item,
         [Parameter(Mandatory)][array]$Children
     )
+    Start-FunctionMeasurement -FunctionName "Add-ChildrenToItemsButtonMenu"
     foreach ($Child in $Children) {
         if ($Child) {
             Add-ChildToItemsButtonMenu $Item ([ref]$Child)
         }
     }
+    Stop-FunctionMeasurement -FunctionName "Add-ChildrenToItemsButtonMenu"
 } # function Add-ChildrenToItemsButtonMenu
 
 function Remove-ChildToItemsButtonMenu {
     param( [ref]$Item, [ref]$Child )
+    Start-FunctionMeasurement -FunctionName "Remove-ChildToItemsButtonMenu"
     if ($Item.Value.Name -eq $ButtonMenuName) { $ButtonMenu = $Item.Value }
     else {
         $ButtonMenu = Find-ObjectWhere -Object $Item -FindWhere { $_.Name -eq $ButtonMenuName } -FindMax 1
@@ -952,6 +1155,7 @@ function Remove-ChildToItemsButtonMenu {
     catch {
         Write-Host "{Remove-ChildToItemsButtonMenu} $_" -ForegroundColor Red
     }
+    Stop-FunctionMeasurement -FunctionName "Remove-ChildToItemsButtonMenu"
 } # function Remove-ChildToItemsButtonMenu
 
 function Get-MenuItemRelativePriority {
@@ -959,6 +1163,7 @@ function Get-MenuItemRelativePriority {
         [Parameter(Mandatory)]$MenuItem,
         [Parameter(Mandatory)][ValidateSet('CustomMenu', 'ButtonMenu')][string]$MenuType
     )
+    Start-FunctionMeasurement -FunctionName "Get-MenuItemRelativePriority"
     if ($MenuItem -is [System.Windows.Controls.Separator]) {
         if ($MenuItem.Tag -is [int]) { return $MenuItem.Tag }
         return 15
@@ -988,6 +1193,7 @@ function Get-MenuItemRelativePriority {
     if ($ItemName -like "*$ClearButtonNameSuffix") { return 60 }
     if ($ItemName -like "*$DisableEnableButtonNameSuffix") { return 70 }
     if ($ItemName -like "*$DeleteButtonNameSuffix") { return 80 }
+    Stop-FunctionMeasurement -FunctionName "Get-MenuItemRelativePriority"
     return 100
 } # function Get-MenuItemRelativePriority
 
@@ -997,6 +1203,7 @@ function Get-MenuRelativeInsertIndex {
         [Parameter(Mandatory)]$Item,
         [Parameter(Mandatory)][ValidateSet('CustomMenu', 'ButtonMenu')][string]$MenuType
     )
+    Start-FunctionMeasurement -FunctionName "Get-MenuRelativeInsertIndex"
     $TargetPriority = Get-MenuItemRelativePriority -MenuItem $Item -MenuType $MenuType
     for ($i = 0; $i -lt $MenuContainer.Items.Count; $i++) {
         $ExistingPriority = Get-MenuItemRelativePriority -MenuItem $MenuContainer.Items[$i] -MenuType $MenuType
@@ -1004,6 +1211,7 @@ function Get-MenuRelativeInsertIndex {
             return $i
         }
     }
+    Stop-FunctionMeasurement -FunctionName "Get-MenuRelativeInsertIndex"
     return $MenuContainer.Items.Count
 } # function Get-MenuRelativeInsertIndex
 
@@ -1012,6 +1220,7 @@ function Move-MenuItemBetweenMenus {
         [Parameter(Mandatory)]$Item,
         [Parameter(Mandatory)][ValidateSet('ToCustomMenu', 'ToButtonMenu')][string]$Direction
     )
+    Start-FunctionMeasurement -FunctionName "Move-MenuItemBetweenMenus"
     $Parent = $Item.Parent
     if (-not $Parent) { return }
 
@@ -1029,6 +1238,7 @@ function Move-MenuItemBetweenMenus {
         $InsertIndex = if ($ButtonMenu) { Get-MenuRelativeInsertIndex -MenuContainer $ButtonMenu -Item $Item -MenuType 'ButtonMenu' } else { -1 }
         Add-ChildToItemsButtonMenu ([ref]$Parent) ([ref]$Item) $InsertIndex
     }
+    Stop-FunctionMeasurement -FunctionName "Move-MenuItemBetweenMenus"
 } # function Move-MenuItemBetweenMenus
 
 function Clear-SingleContentElement {
@@ -1036,6 +1246,7 @@ function Clear-SingleContentElement {
         [Parameter(Mandatory)]$Element,
         [switch]$UseEmptyString
     )
+    Start-FunctionMeasurement -FunctionName "Clear-SingleContentElement"
     $EmptyVal = if ($UseEmptyString) { '' } else { $null }
     Restore-ElementSearchStyle -Element $Element
 
@@ -1051,12 +1262,14 @@ function Clear-SingleContentElement {
             Write-Host "What is this? ($($Element.GetType().Name))" -ForegroundColor Red -BackgroundColor Yellow
         }
     }
+    Stop-FunctionMeasurement -FunctionName "Clear-SingleContentElement"
 } # function Clear-SingleContentElement
 
 function Clear-WrapperContent {
     param(
         [ref]$Wrapper
     )
+    Start-FunctionMeasurement -FunctionName "Clear-WrapperContent"
     $Contents = Find-ObjectWhere -Object $Wrapper -FindWhere { $_.Name -eq $ContentElementName }
     :Contents foreach ($Content in $Contents) {
         if ((Get-IsLocked ([ref]$Content))) { continue Contents } # TODO: Flash lock
@@ -1071,12 +1284,14 @@ function Clear-WrapperContent {
             Clear-SingleContentElement -Element $DateBox
         }
     }
+    Stop-FunctionMeasurement -FunctionName "Clear-WrapperContent"
 } # function Clear-WrapperContent
 
 function Set-WrapperRandomContent {
     param(
         [ref]$Wrapper
     )
+    Start-FunctionMeasurement -FunctionName 'Set-WrapperRandomContent'
     $Contents = @()
     if ($Wrapper.Value.Name -eq $ContentElementName) {
         $Contents += $Wrapper.Value
@@ -1126,6 +1341,8 @@ function Set-WrapperRandomContent {
             $DateBox.Text = (Get-Date).AddDays((Get-Random -Minimum -30 -Maximum 30)).ToString('yyyy-MM-dd HH:mm:ss')
         }
     }
+
+    Stop-FunctionMeasurement -FunctionName 'Set-WrapperRandomContent'
 } # function Set-WrapperRandomContent
 
 function Set-DisableEnableButtonVisualState {
@@ -1133,6 +1350,7 @@ function Set-DisableEnableButtonVisualState {
         [Parameter(Mandatory)]$Button,
         [Parameter(Mandatory)][bool]$IsDisabled
     )
+    Start-FunctionMeasurement -FunctionName 'Set-DisableEnableButtonVisualState'
     $IsAll = $Button.Header -like '* All' -or ($Button.Tag -is [hashtable] -and $Button.Tag.IsAll)
     if ($IsDisabled) {
         if ($Button.Icon -eq $DisableEnableButtonIconEnabled) {
@@ -1150,10 +1368,13 @@ function Set-DisableEnableButtonVisualState {
             $Button.Tag = $null
         }
     }
+
+    Stop-FunctionMeasurement -FunctionName 'Set-DisableEnableButtonVisualState'
 } # function Set-DisableEnableButtonVisualState
 
 function Confirm-ArrayEnableButton {
     param( [ref]$Item )
+    Start-FunctionMeasurement -FunctionName "Confirm-ArrayEnableButton"
     $Target = Resolve-TargetElement $Item
     if ($Target.Name -eq $ContentHeaderBorderName) {
         $ContentHeaderBorder = $Target
@@ -1192,12 +1413,14 @@ function Confirm-ArrayEnableButton {
     elseif ($DisabledCount -eq 0) {
         Set-DisableEnableButtonVisualState -Button $ArrayButton -IsDisabled $false
     }
+    Stop-FunctionMeasurement -FunctionName "Confirm-ArrayEnableButton"
 } # function Confirm-ArrayEnableButton
 
 function Update-ArrayButtonsState {
     param(
         [Parameter(Mandatory)]$Wrapper
     )
+    Start-FunctionMeasurement -FunctionName 'Update-ArrayButtonsState'
     $Target = Resolve-TargetElement $Wrapper
     if (-not $Target) { return }
 
@@ -1250,6 +1473,8 @@ function Update-ArrayButtonsState {
             Close-SearchBar -ChildElement $SearchBar
         }
     }
+
+    Stop-FunctionMeasurement -FunctionName 'Update-ArrayButtonsState'
 } # function Update-ArrayButtonsState
 
 function Sync-ArraySlotState {
@@ -1257,12 +1482,14 @@ function Sync-ArraySlotState {
         [Parameter(Mandatory)]$ContentSlot,
         $ContainerWrapper = $null
     )
+    Start-FunctionMeasurement -FunctionName "Sync-ArraySlotState"
     $TargetSlot = Resolve-TargetElement $ContentSlot
     if (-not $TargetSlot) { return }
     Reset-ArrayIndexes ([ref]$TargetSlot)
     $SyncTarget = if ($ContainerWrapper) { $ContainerWrapper } else { $TargetSlot }
     Confirm-ArrayEnableButton -Item ([ref]$SyncTarget)
     Update-ArrayButtonsState -Wrapper $SyncTarget
+    Stop-FunctionMeasurement -FunctionName "Sync-ArraySlotState"
 } # function Sync-ArraySlotState
 
 function Clear-ContentSlotArrayItems {
@@ -1271,6 +1498,7 @@ function Clear-ContentSlotArrayItems {
         $ContentSlot,
         $ContainerWrapper = $null
     )
+    Start-FunctionMeasurement -FunctionName "Clear-ContentSlotArrayItems"
     $TargetSlot = Resolve-TargetElement $ContentSlot
     if (-not $TargetSlot) { return }
 
@@ -1279,6 +1507,7 @@ function Clear-ContentSlotArrayItems {
         $TargetSlot.Children.Remove($Child)
     }
     Sync-ArraySlotState -ContentSlot $TargetSlot -ContainerWrapper $ContainerWrapper
+    Stop-FunctionMeasurement -FunctionName "Clear-ContentSlotArrayItems"
 } # function Clear-ContentSlotArrayItems
 
 #endregion #3 Content Wrapper Actions
@@ -1286,6 +1515,7 @@ function Clear-ContentSlotArrayItems {
 #region #3 Content Wrapper Elements
 
 function New-CustomMenu {
+    Start-FunctionMeasurement -FunctionName 'New-CustomMenu'
     $Menu = New-BaseMenu @{
         Name                = $MenuName
         Background          = 'Transparent'
@@ -1305,6 +1535,7 @@ function New-CustomMenu {
             if ($e.Source -ne $s) { return }
             $ParentWrapper = Get-ParentWrapperBorder -Element $s
             if ($ParentWrapper) {
+                Ensure-WrapperActionButtons -Element $s
                 Update-WrapperPasteButtonState -Wrapper $ParentWrapper
             }
         })
@@ -1312,6 +1543,8 @@ function New-CustomMenu {
     Add-BaseMenuChild ([ref]$Menu) ([ref]$MenuItem)
 
     $Menu
+
+    Stop-FunctionMeasurement -FunctionName 'New-CustomMenu'
 } # function New-CustomMenu
 
 function New-ContentHeader {
@@ -1324,6 +1557,7 @@ function New-ContentHeader {
         [bool]$ArrayItemHeader = $false,
         [int]$Depth = 0
     )
+    Start-FunctionMeasurement -FunctionName 'New-ContentHeader'
 
     if (-not $WrapperType) { $WrapperType = $TitleType }
 
@@ -1417,9 +1651,10 @@ function New-ContentHeader {
 
     #endregion Buttons
 
-    # Search Bar
-    $SearchBar = New-SearchBar -WrapperName $ContentHeaderBorderName
-    $ContentHeaderBorderStack.AddChild($SearchBar) | Out-Null
+    # Search Bar (Deferred/Lazy initialization via Get-OrCreateSearchBar)
+    $ContentHeaderBorder.Tag.SearchBar = $null
+    $ContentHeaderBorder.Tag.Menu = $ContentHeaderButtonMenu
+    $ContentHeaderBorder.Tag.Depth = $Depth
 
     # Content Slot
     $ContentSlot = New-BaseStackPanel @{
@@ -1438,7 +1673,9 @@ function New-ContentHeader {
         $ContentSlot.Visibility = 'Collapsed'
     }
 
-    return $ContentHeaderBorder
+    $ReturnValue = $ContentHeaderBorder
+    Stop-FunctionMeasurement -FunctionName 'New-ContentHeader'
+    return $ReturnValue
 } # function New-ContentHeader
 
 #endregion #3 Content Wrapper Elements
@@ -1451,6 +1688,7 @@ function New-ContentHeader {
 
 function Invoke-ConstructButtonClick {
     param($s, $e)
+    Start-FunctionMeasurement -FunctionName 'Invoke-ConstructButtonClick'
     if ($s.Header -eq ($ConstructButtonHeader + ' All')) {
         $ContentHeaderBorder = Find-ObjectWhere -Object ([ref]$s) -FindWhere { $_.Name -eq $ContentHeaderBorderName } -DigProperties 'Parent' -FindMax 1
         $Constructs = Find-ObjectWhere -Object $ContentHeaderBorder -FindWhere { $_.Name -eq $ConstructName }
@@ -1461,6 +1699,8 @@ function Invoke-ConstructButtonClick {
     else {
         Build-Object -Object ([ref]$s)
     }
+
+    Stop-FunctionMeasurement -FunctionName 'Invoke-ConstructButtonClick'
 } # function Invoke-ConstructButtonClick
 
 function New-TypeContent {
@@ -1475,6 +1715,7 @@ function New-TypeContent {
         [int]$Index = 0,
         [int]$Depth = 0
     )
+    Start-FunctionMeasurement -FunctionName 'New-TypeContent'
     $ConstructArray = $False
 
     if ($Type.IsArray) {
@@ -1558,10 +1799,13 @@ function New-TypeContent {
         $Top.Tag.Construct = if ($Top.Tag.IsConstruct) { $Content } else { $null }
         $Top.Tag.ContentSlot = Find-ObjectWhere -Object ([ref]$Top) -FindWhere { $_.Name -eq $ContentSlotElementName } -DepthMax 0 -DepthWhere { @($ContentHeaderBorderName, $ContentBorderName) -contains $_.Name } -FindMax 1
         if (-not $Top.Tag.ContainsKey('AddButton')) { $Top.Tag.AddButton = $null }
+        $Top.Tag.Content = if ($null -ne $Content -and $Content.Name -eq $ContentElementName) { $Content } else { $null }
+        $Top.Tag.CustomDateTimePicker = if ($null -ne $Content -and $Content.Name -eq $CustomDateTimePickerName) { $Content } else { $null }
+        $Top.Tag.Depth = $Depth
     }
 
     if (-not $IsArrayType -and $ArrayType -ne 'ArrayItem') {
-        Add-ChildrenToItemsButtonMenu ([ref]$Top) (Get-StandardActionButtons -ActionFrom $Top.Name -IncludeSearch -IsConstruct:$IsConstruct)
+        Set-WrapperActionButtonsLazy -Wrapper ([ref]$Top) -ActionFrom $Top.Name -IncludeSearch -IsConstruct:$IsConstruct
     }
 
     if ($Content.Name -eq $ConstructName -or $ConstructArray) {
@@ -1588,7 +1832,9 @@ function New-TypeContent {
         Update-ArrayButtonsState -Wrapper $Top
     }
 
-    return $Top
+    $ReturnValue = $Top
+    Stop-FunctionMeasurement -FunctionName 'New-TypeContent'
+    return $ReturnValue
 } # function New-TypeContent
 
 function New-ContentWrapper {
@@ -1601,6 +1847,7 @@ function New-ContentWrapper {
         [bool]$ArrayItem = $false,
         [int]$Depth = 0
     )
+    Start-FunctionMeasurement -FunctionName 'New-ContentWrapper'
 
     if ($WrapperType -eq 'None') { return $null }
 
@@ -1629,12 +1876,16 @@ function New-ContentWrapper {
             HorizontalAlignment = 'Stretch'
         }
         $BorderDock.AddChild($BorderDockStack) | Out-Null
+        $Border.Tag.ContentSlot = $BorderDockStack
+        $Border.Tag.Depth = $Depth
 
         return $Border
     }
 
     $Wrapper = New-ContentHeader -TitleType $WrapperType -Title $Title -Description $Description -Type $Type -ArrayItemHeader $ArrayItem -Depth $Depth
-    return $Wrapper
+    $ReturnValue = $Wrapper
+    Stop-FunctionMeasurement -FunctionName 'New-ContentWrapper'
+    return $ReturnValue
 
 } # function New-ContentWrapper
 
@@ -1647,6 +1898,7 @@ function Add-ArrayFunctionality {
         [ref]$Wrapper,
         $Index
     )
+    Start-FunctionMeasurement -FunctionName "Add-ArrayFunctionality"
     if ($ArrayItemType -eq 'Array') {
         # Button: Add
         $TargetType = if ($Wrapper.Value.Tag -is [hashtable] -and $Wrapper.Value.Tag.ContainsKey('TargetType')) {
@@ -1663,7 +1915,7 @@ function Add-ArrayFunctionality {
         $Wrapper.Value.Tag.AddButton = $AddButton
 
         # Buttons: QuickSet, Sort, Search, Lock, Random, Clear, Enable/Disable, Delete
-        Add-ChildrenToItemsButtonMenu $Wrapper (Get-StandardActionButtons -ActionFrom $Wrapper.Value.Name -IsBatch -IncludeSearch -TargetType $TargetType)
+        Set-WrapperActionButtonsLazy -Wrapper $Wrapper -ActionFrom $Wrapper.Value.Name -IsBatch -IncludeSearch -TargetType $TargetType
     }
     elseif ($ArrayItemType -eq 'ArrayItem') {
         if (@('Header', 'MiniHeader') -contains $WrapperType) {
@@ -1698,7 +1950,7 @@ function Add-ArrayFunctionality {
         #region Array Item Buttons
 
         $HasHeaderMenu = ($WrapperType -ne 'Border' -and $WrapperType -ne 'None')
-        Add-ChildrenToItemsButtonMenu $Wrapper (Get-StandardActionButtons -ActionFrom $Wrapper.Value.Name -IncludeArrayItemActions -IncludeSearch:$HasHeaderMenu -IsConstruct:$HasHeaderMenu)
+        Set-WrapperActionButtonsLazy -Wrapper $Wrapper -ActionFrom $Wrapper.Value.Name -IncludeArrayItemActions -IncludeSearch:$HasHeaderMenu -IsConstruct:$HasHeaderMenu
 
         #endregion Array Item Buttons
     }
@@ -1706,6 +1958,7 @@ function Add-ArrayFunctionality {
         Write-Host "[Add-ArrayFunctionality] Unknown ArrayItemType: $ArrayItemType" -ForegroundColor Red
     }
 
+    Stop-FunctionMeasurement -FunctionName "Add-ArrayFunctionality"
 } # function Add-ArrayFunctionality
 
 #endregion #3 Content Controls Processes
@@ -1716,6 +1969,7 @@ function Add-ArrayFunctionality {
 
 function Get-ContentValue {
     param($Object)
+    Start-FunctionMeasurement -FunctionName "Get-ContentValue"
 
     Try {
         $ObjectName = $Object.GetType().Name
@@ -1745,11 +1999,13 @@ function Get-ContentValue {
 
     if ($null -ne $Value) {
         if ($Value.GetType().IsEnum) {
+            Stop-FunctionMeasurement -FunctionName "Get-ContentValue"
             return $Value.ToString()
         }
         if ($Value -is [string] -and [string]::IsNullOrEmpty($Value)) {
             return $null
         }
+        Stop-FunctionMeasurement -FunctionName "Get-ContentValue"
         return $Value
     }
     else { return $null }
@@ -1771,6 +2027,7 @@ function New-QuickSetModalDialog {
         [scriptblock]$ResultProvider,
         [scriptblock]$OnLoadedCallback
     )
+    Start-FunctionMeasurement -FunctionName 'New-QuickSetModalDialog'
 
     $Dialog = New-Object System.Windows.Window
     $Dialog.Title = $Title
@@ -1863,7 +2120,9 @@ function New-QuickSetModalDialog {
     }
 
     $null = $Dialog.ShowDialog()
-    return $DialogResultContainer.Value
+    $ReturnValue = $DialogResultContainer.Value
+    Stop-FunctionMeasurement -FunctionName 'New-QuickSetModalDialog'
+    return $ReturnValue
 } # function New-QuickSetModalDialog
 
 
@@ -1873,6 +2132,7 @@ function Show-QuickSetInputDialog {
         [string]$Prompt = 'Enter name:',
         [string]$DefaultValue = ''
     )
+    Start-FunctionMeasurement -FunctionName "Show-QuickSetInputDialog"
 
     $PromptLabel = New-BaseTextBlock @{
         Text       = $Prompt
@@ -1905,6 +2165,7 @@ function Show-QuickSetInputDialog {
             $InputBox.Focus() | Out-Null
             $InputBox.SelectAll()
         })
+    Stop-FunctionMeasurement -FunctionName "Show-QuickSetInputDialog"
 } # function Show-QuickSetInputDialog
 
 
@@ -1913,6 +2174,7 @@ function Show-QuickSetConfirmDialog {
         [string]$Title = 'Confirm',
         [string]$Message = 'Are you sure?'
     )
+    Start-FunctionMeasurement -FunctionName "Show-QuickSetConfirmDialog"
 
     $MsgBlock = New-BaseTextBlock @{
         Text              = $Message
@@ -1934,11 +2196,13 @@ function Show-QuickSetConfirmDialog {
     if ($Result -eq $true) {
         return $true
     }
+    Stop-FunctionMeasurement -FunctionName "Show-QuickSetConfirmDialog"
     return $false
 } # function Show-QuickSetConfirmDialog
 
 function Get-QuickSetTypeDirectory {
     param($Type)
+    Start-FunctionMeasurement -FunctionName "Get-QuickSetTypeDirectory"
     if (-not (Test-Path -LiteralPath $QuickSetRootPath)) {
         [void][System.IO.Directory]::CreateDirectory($QuickSetRootPath)
     }
@@ -1963,11 +2227,13 @@ function Get-QuickSetTypeDirectory {
     if (-not (Test-Path -LiteralPath $TypeDir)) {
         [void][System.IO.Directory]::CreateDirectory($TypeDir)
     }
+    Stop-FunctionMeasurement -FunctionName "Get-QuickSetTypeDirectory"
     return $TypeDir
 } # function Get-QuickSetTypeDirectory
 
 function Get-WrapperTargetType {
     param([Parameter(Mandatory)]$Wrapper)
+    Start-FunctionMeasurement -FunctionName "Get-WrapperTargetType"
     $Target = Resolve-TargetElement $Wrapper
     if (-not $Target) { return [object] }
 
@@ -2006,11 +2272,13 @@ function Get-WrapperTargetType {
             default { return [string] }
         }
     }
+    Stop-FunctionMeasurement -FunctionName "Get-WrapperTargetType"
     return [object]
 } # function Get-WrapperTargetType
 
 function Get-QuickSetMenuFromSender {
     param($s)
+    Start-FunctionMeasurement -FunctionName "Get-QuickSetMenuFromSender"
     if (-not $s) { return $null }
     $Target = Resolve-TargetElement $s
     if ($Target -is [System.Windows.Controls.MenuItem] -and $Target.Name -like "*$QuickSetMenuNameSuffix") {
@@ -2018,6 +2286,7 @@ function Get-QuickSetMenuFromSender {
     }
     $Found = Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $_.Name -like "*$QuickSetMenuNameSuffix" } -DigProperties 'Parent' -FindMax 1
     if ($Found -is [array]) { return $Found[0] }
+    Stop-FunctionMeasurement -FunctionName "Get-QuickSetMenuFromSender"
     return $Found
 } # function Get-QuickSetMenuFromSender
 
@@ -2026,6 +2295,7 @@ function Get-QuickSetWrapper {
         [Parameter(Mandatory)]$s,
         [string]$ActionFrom
     )
+    Start-FunctionMeasurement -FunctionName "Get-QuickSetWrapper"
     $TargetSender = Resolve-TargetElement $s
 
     if (-not $ActionFrom) {
@@ -2047,11 +2317,13 @@ function Get-QuickSetWrapper {
     if (-not $ContentWrapper) {
         $ContentWrapper = Get-ParentWrapperBorder -Element $TargetSender
     }
+    Stop-FunctionMeasurement -FunctionName "Get-QuickSetWrapper"
     return $ContentWrapper
 } # function Get-QuickSetWrapper
 
 function Get-WrapperHeaderTitleElement {
     param([Parameter(Mandatory)]$Wrapper)
+    Start-FunctionMeasurement -FunctionName "Get-WrapperHeaderTitleElement"
     $Target = Resolve-TargetElement $Wrapper
     if (-not $Target) { return $null }
 
@@ -2061,11 +2333,13 @@ function Get-WrapperHeaderTitleElement {
 
     $TitleElem = Find-ObjectWhere -Object ([ref]$TitleDock) -FindWhere { $_.Name -eq $ContentHeaderTitleValueName } -FindMax 1
     if ($TitleElem -is [array]) { $TitleElem = $TitleElem[0] }
+    Stop-FunctionMeasurement -FunctionName "Get-WrapperHeaderTitleElement"
     return $TitleElem
 } # function Get-WrapperHeaderTitleElement
 
 function Get-IsArrayItem {
     param([Parameter(Mandatory)]$Wrapper)
+    Start-FunctionMeasurement -FunctionName "Get-IsArrayItem"
     $Target = Resolve-TargetElement $Wrapper
     if (-not $Target) { return $false }
 
@@ -2074,11 +2348,13 @@ function Get-IsArrayItem {
     }
 
     $ItemStack = Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $_.Name -eq $ArrayItemStackName } -DepthMax 2 -FindMax 1
+    Stop-FunctionMeasurement -FunctionName "Get-IsArrayItem"
     return ($null -ne $ItemStack)
 } # function Get-IsArrayItem
 
 function Get-WrapperDisplayName {
     param([Parameter(Mandatory)]$Wrapper)
+    Start-FunctionMeasurement -FunctionName "Get-WrapperDisplayName"
     $Target = Resolve-TargetElement $Wrapper
     if (-not $Target) { return $null }
 
@@ -2113,6 +2389,7 @@ function Get-WrapperDisplayName {
         }
     }
 
+    Stop-FunctionMeasurement -FunctionName "Get-WrapperDisplayName"
     return $null
 } # function Get-WrapperDisplayName
 
@@ -2121,6 +2398,7 @@ function Set-WrapperDisplayName {
         [Parameter(Mandatory)]$Wrapper,
         [string]$DisplayName
     )
+    Start-FunctionMeasurement -FunctionName 'Set-WrapperDisplayName'
     $Target = Resolve-TargetElement $Wrapper
     if (-not $Target) { return }
 
@@ -2154,6 +2432,8 @@ function Set-WrapperDisplayName {
         }
         Update-QuickSetBadge -Wrapper $Target -DisplayName $null
     }
+
+    Stop-FunctionMeasurement -FunctionName 'Set-WrapperDisplayName'
 } # function Set-WrapperDisplayName
 
 function Save-QuickSetFile {
@@ -2161,6 +2441,7 @@ function Save-QuickSetFile {
         [Parameter(Mandatory)]$Wrapper,
         [Parameter(Mandatory)][string]$QuickSetName
     )
+    Start-FunctionMeasurement -FunctionName "Save-QuickSetFile"
     $TargetWrapper = Resolve-QuickSetWrapper $Wrapper
     if (-not $TargetWrapper) { return $false }
 
@@ -2179,6 +2460,7 @@ function Save-QuickSetFile {
     $TargetWrapper.Tag.ActiveQuickSet = $SanitizedName
     Update-QuickSetBadge -Wrapper $TargetWrapper -DisplayName $SanitizedName
 
+    Stop-FunctionMeasurement -FunctionName "Save-QuickSetFile"
     return $true
 } # function Save-QuickSetFile
 
@@ -2187,6 +2469,7 @@ function Get-WrapperQuickSetValue {
         [Parameter(Mandatory)]$Wrapper,
         [switch]$ValuesOnly
     )
+    Start-FunctionMeasurement -FunctionName "Get-WrapperQuickSetValue"
     $Target = Resolve-QuickSetWrapper $Wrapper
     if (-not $Target) { return $null }
 
@@ -2220,14 +2503,14 @@ function Get-WrapperQuickSetValue {
     }
     else {
         # Simple wrapper: read its own Content control (or the wrapper is the Content control)
-        $Content = if ($Target.Name -eq $ContentElementName) { $Target } else {
+        $Content = if ($Tag.ContainsKey('Content') -and $Tag.Content) { $Tag.Content } elseif ($Target.Name -eq $ContentElementName) { $Target } else {
             Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $_.Name -eq $ContentElementName } -DepthMax 0 -DepthWhere $StopAtChild -FindMax 1
         }
         if ($Content) {
             $RawValue = (Get-ContentValue -Object $Content)
         }
         else {
-            $DTP = Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $_.Name -eq $CustomDateTimePickerName } -DepthMax 0 -DepthWhere $StopAtChild -FindMax 1
+            $DTP = if ($Tag.ContainsKey('CustomDateTimePicker') -and $Tag.CustomDateTimePicker) { $Tag.CustomDateTimePicker } else { Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $_.Name -eq $CustomDateTimePickerName } -DepthMax 0 -DepthWhere $StopAtChild -FindMax 1 }
             if ($DTP) {
                 $RawValue = (Get-ContentValue -Object $DTP)
             }
@@ -2260,6 +2543,7 @@ function Get-WrapperQuickSetValue {
     # The leading comma stops PowerShell from unrolling an array result
     if ($Tag.IsArray) { return , $RawValue }
 
+    Stop-FunctionMeasurement -FunctionName "Get-WrapperQuickSetValue"
     return $RawValue
 } # function Get-WrapperQuickSetValue
 
@@ -2269,6 +2553,7 @@ function Set-WrapperQuickSetValue {
         $Value,
         [switch]$ValuesOnly
     )
+    Start-FunctionMeasurement -FunctionName 'Set-WrapperQuickSetValue'
     $Target = Resolve-QuickSetWrapper $Wrapper
     if (-not $Target) { return }
 
@@ -2281,7 +2566,7 @@ function Set-WrapperQuickSetValue {
     # -DepthMax 0 with this DepthWhere means a search never goes inside a child wrapper
     $StopAtChild = { @($ContentHeaderBorderName, $ContentBorderName) -contains $_.Name }
 
-    $SearchBar = Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $_.Name -like "*$SearchBarNameSuffix" } -DepthMax 0 -DepthWhere $StopAtChild -FindMax 1
+    $SearchBar = if ($Tag.ContainsKey('SearchBar') -and $Tag.SearchBar) { $Tag.SearchBar } else { Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $_.Name -like "*$SearchBarNameSuffix" } -DepthMax 0 -DepthWhere $StopAtChild -FindMax 1 }
     if ($SearchBar -and $SearchBar.Visibility -eq 'Visible') {
         Close-SearchBar -ChildElement $SearchBar
     }
@@ -2346,9 +2631,14 @@ function Set-WrapperQuickSetValue {
         $AddButton = $Tag.AddButton
         if ($ContentSlot -and $AddButton) {
             $List = if ($null -eq $Value) { @() } else { @($Value) }
+            $TargetType = if ($Tag.ContainsKey('TargetType') -and $Tag.TargetType) { $Tag.TargetType } elseif ($AddButton.Tag) { [string]$AddButton.Tag.TrimEnd('[]') } else { $Target.DataContext }
+            $BaseDepth = if ($Tag.ContainsKey('Depth')) { $Tag.Depth } else { 0 }
             while ($ContentSlot.Children.Count -lt $List.Count) {
                 $CountBefore = $ContentSlot.Children.Count
-                $AddButton.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.MenuItem]::ClickEvent)))
+                # Direct construction bypasses routed menu event overhead
+                $NewItem = New-TypeContent -WrapperType 'Border' -Type $TargetType -ArrayType 'ArrayItem' -Index $ContentSlot.Children.Count -Depth ($BaseDepth + 1)
+                $ContentSlot.AddChild($NewItem) | Out-Null
+
                 # Stop if the Add button didn't add an item, instead of looping forever
                 if ($ContentSlot.Children.Count -le $CountBefore) { break }
             }
@@ -2362,12 +2652,18 @@ function Set-WrapperQuickSetValue {
                     $ContentSlot.Children.RemoveAt($ContentSlot.Children.Count - 1)
                 }
             }
-            Sync-ArraySlotState -ContentSlot $ContentSlot -ContainerWrapper $Target
+            Reset-ArrayIndexes ([ref]$ContentSlot)
 
             $SetCount = [Math]::Min($List.Count, $ContentSlot.Children.Count)
             for ($i = 0; $i -lt $SetCount; $i++) {
                 Set-WrapperQuickSetValue -Wrapper $ContentSlot.Children[$i] -Value $List[$i] -ValuesOnly:$ValuesOnly
+
+                # Dispatcher frame yielding: renders each item onto the screen immediately as it finishes loading
+                [System.Windows.Threading.Dispatcher]::CurrentDispatcher.Invoke([System.Action]{}, [System.Windows.Threading.DispatcherPriority]::Background)
             }
+
+            # Batch array button states once for the container after all child elements are populated
+            Update-ArrayButtonsState -Wrapper $Target
         }
     }
     elseif ($Tag.IsConstruct -and $Tag.Construct) {
@@ -2439,10 +2735,13 @@ function Set-WrapperQuickSetValue {
             Set-WrapperSearchState -Wrapper $Target -SearchData $null
         }
     }
+
+    Stop-FunctionMeasurement -FunctionName 'Set-WrapperQuickSetValue'
 } # function Set-WrapperQuickSetValue
 
 function Clear-WrapperQuickSetValue {
     param([Parameter(Mandatory)]$Wrapper)
+    Start-FunctionMeasurement -FunctionName "Clear-WrapperQuickSetValue"
     $Target = Resolve-QuickSetWrapper $Wrapper
     if (-not $Target) { return }
 
@@ -2454,7 +2753,7 @@ function Clear-WrapperQuickSetValue {
 
     $StopAtChild = { @($ContentHeaderBorderName, $ContentBorderName) -contains $_.Name }
 
-    $SearchBar = Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $_.Name -like "*$SearchBarNameSuffix" } -DepthMax 0 -DepthWhere $StopAtChild -FindMax 1
+    $SearchBar = if ($Tag.ContainsKey('SearchBar') -and $Tag.SearchBar) { $Tag.SearchBar } else { Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $_.Name -like "*$SearchBarNameSuffix" } -DepthMax 0 -DepthWhere $StopAtChild -FindMax 1 }
     if ($SearchBar -and $SearchBar.Visibility -eq 'Visible') {
         Close-SearchBar -ChildElement $SearchBar
     }
@@ -2507,6 +2806,7 @@ function Clear-WrapperQuickSetValue {
         }
         return
     }
+    Stop-FunctionMeasurement -FunctionName "Clear-WrapperQuickSetValue"
 } # function Clear-WrapperQuickSetValue
 
 function Set-QuickSetActiveButtonsState {
@@ -2514,6 +2814,7 @@ function Set-QuickSetActiveButtonsState {
         [Parameter(Mandatory)]$QuickSetMenuItem,
         [Parameter(Mandatory)][bool]$IsEnabled
     )
+    Start-FunctionMeasurement -FunctionName 'Set-QuickSetActiveButtonsState'
     $QSMenu = Resolve-TargetElement $QuickSetMenuItem
     if (-not $QSMenu) { return }
 
@@ -2527,6 +2828,8 @@ function Set-QuickSetActiveButtonsState {
     )
 
     Set-MenuButtonsEnabledState -Menu $QSMenu -Suffixes $ActiveOnlyButtonSuffixes -IsEnabled $IsEnabled
+
+    Stop-FunctionMeasurement -FunctionName 'Set-QuickSetActiveButtonsState'
 } # function Set-QuickSetActiveButtonsState
 
 function Reset-WrapperQuickSet {
@@ -2535,6 +2838,7 @@ function Reset-WrapperQuickSet {
         [switch]$SaveCurrentValues,
         $QuickSetMenuItem = $null
     )
+    Start-FunctionMeasurement -FunctionName "Reset-WrapperQuickSet"
     $TargetWrapper = Resolve-TargetElement $Wrapper
     if (-not $TargetWrapper) { return }
 
@@ -2563,10 +2867,12 @@ function Reset-WrapperQuickSet {
         Set-QuickSetActiveButtonsState -QuickSetMenuItem $QSMenu -IsEnabled $false
         Update-QuickSetSubMenu -QuickSetMenuItem $QSMenu -Wrapper $TargetWrapper
     }
+    Stop-FunctionMeasurement -FunctionName "Reset-WrapperQuickSet"
 } # function Reset-WrapperQuickSet
 
 function Invoke-ExistingBadgeClick {
     param($s, $e)
+    Start-FunctionMeasurement -FunctionName 'Invoke-ExistingBadgeClick'
     if ($e) { $e.Handled = $true }
     try {
         $TargetWrapper = if ($s.Tag) { $s.Tag } else { Get-QuickSetWrapper $s }
@@ -2576,6 +2882,8 @@ function Invoke-ExistingBadgeClick {
     catch {
         [System.Windows.MessageBox]::Show("Error saving QuickSet: $_", "QuickSet Error") | Out-Null
     }
+
+    Stop-FunctionMeasurement -FunctionName 'Invoke-ExistingBadgeClick'
 } # function Invoke-ExistingBadgeClick
 
 function Update-QuickSetBadge {
@@ -2583,6 +2891,7 @@ function Update-QuickSetBadge {
         [Parameter(Mandatory)]$Wrapper,
         [string]$DisplayName
     )
+    Start-FunctionMeasurement -FunctionName 'Update-QuickSetBadge'
     $Target = Resolve-TargetElement $Wrapper
     if (-not $Target) { return }
 
@@ -2630,10 +2939,13 @@ function Update-QuickSetBadge {
             $Menu.Items.Insert(0, $ExistingBadge) | Out-Null
         }
     }
+
+    Stop-FunctionMeasurement -FunctionName 'Update-QuickSetBadge'
 } # function Update-QuickSetBadge
 
 function Invoke-QuickSetSetItemClick {
     param($s, $e, $TargetWrapper, $TargetFile, $TargetName, $CurrentQSMenu)
+    Start-FunctionMeasurement -FunctionName 'Invoke-QuickSetSetItemClick'
     try {
         $MenuToUpdate = if ($CurrentQSMenu) { $CurrentQSMenu } else { Get-QuickSetMenuFromSender $s }
         $WrapperToUpdate = if ($TargetWrapper) { $TargetWrapper } else { Get-QuickSetWrapper $s }
@@ -2655,6 +2967,8 @@ function Invoke-QuickSetSetItemClick {
     catch {
         [System.Windows.MessageBox]::Show("Error loading QuickSet: $_", "QuickSet Error") | Out-Null
     }
+
+    Stop-FunctionMeasurement -FunctionName 'Invoke-QuickSetSetItemClick'
 } # function Invoke-QuickSetSetItemClick
 
 function Update-QuickSetSubMenu {
@@ -2662,6 +2976,7 @@ function Update-QuickSetSubMenu {
         [Parameter(Mandatory)]$QuickSetMenuItem,
         [Parameter(Mandatory)]$Wrapper
     )
+    Start-FunctionMeasurement -FunctionName 'Update-QuickSetSubMenu'
     $TargetWrapper = Resolve-TargetElement $Wrapper
     if (-not $TargetWrapper) { return }
 
@@ -2715,6 +3030,8 @@ function Update-QuickSetSubMenu {
 
         $SetMenu.Items.Add($SetItem) | Out-Null
     } # files foreach
+
+    Stop-FunctionMeasurement -FunctionName 'Update-QuickSetSubMenu'
 } # function Update-QuickSetSubMenu
 
 #endregion #4 QuickSet
@@ -2725,6 +3042,7 @@ function Restore-ElementSearchStyle {
     param(
         [Parameter(Mandatory)]$Element
     )
+    Start-FunctionMeasurement -FunctionName "Restore-ElementSearchStyle"
     $Target = Resolve-TargetElement $Element
     if (-not $Target -or [string]::IsNullOrEmpty($Target.Uid)) { return }
     if (-not $SearchOriginalStyles.ContainsKey($Target.Uid)) { return }
@@ -2747,22 +3065,26 @@ function Restore-ElementSearchStyle {
         $Target.BorderThickness = $Entry.BorderThickness
     }
     $SearchOriginalStyles.Remove($Target.Uid)
+    Stop-FunctionMeasurement -FunctionName "Restore-ElementSearchStyle"
 } # function Restore-ElementSearchStyle
 
 function Resolve-SearchBar {
     param(
         [Parameter(Mandatory)]$ChildElement
     )
+    Start-FunctionMeasurement -FunctionName "Resolve-SearchBar"
     $Target = Resolve-TargetElement $ChildElement
     if (-not $Target) { return $null }
     if ($Target.Name -like "*$SearchBarNameSuffix") { return $Target }
     $Found = Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $_.Name -like "*$SearchBarNameSuffix" } -DigProperties 'Parent' -FindMax 1
     if ($Found -is [array]) { return $Found[0] }
+    Stop-FunctionMeasurement -FunctionName "Resolve-SearchBar"
     return $Found
 } # function Resolve-SearchBar
 
 function Expand-ElementParents {
     param([Parameter(Mandatory)]$Element)
+    Start-FunctionMeasurement -FunctionName "Expand-ElementParents"
     $Curr = $Element
     while ($Curr -and $Curr -ne $BaseWindow) {
         $Parent = $Curr.Parent
@@ -2780,6 +3102,7 @@ function Expand-ElementParents {
         }
         $Curr = $Parent
     }
+    Stop-FunctionMeasurement -FunctionName "Expand-ElementParents"
 } # function Expand-ElementParents
 
 function Set-BorderHighlight {
@@ -2787,6 +3110,7 @@ function Set-BorderHighlight {
         [Parameter(Mandatory)]$Target,
         [ValidateSet('Match', 'Active')][string]$HighlightType = 'Match'
     )
+    Start-FunctionMeasurement -FunctionName 'Set-BorderHighlight'
     if (-not $Target) { return }
 
     if ([string]::IsNullOrEmpty($Target.Uid)) {
@@ -2811,6 +3135,8 @@ function Set-BorderHighlight {
         $Target.BorderBrush = $BrushConverter.ConvertFromString('#F1C40F')
         $Target.BorderThickness = [System.Windows.Thickness]::new(2.5)
     }
+
+    Stop-FunctionMeasurement -FunctionName 'Set-BorderHighlight'
 } # function Set-BorderHighlight
 
 function Set-ElementHighlight {
@@ -2820,6 +3146,7 @@ function Set-ElementHighlight {
         [string]$Query = '',
         [regex]$CompiledRegex = $null
     )
+    Start-FunctionMeasurement -FunctionName 'Set-ElementHighlight'
     $Target = Resolve-TargetElement $Element
     if (-not $Target) { return }
 
@@ -2949,10 +3276,13 @@ function Set-ElementHighlight {
             Set-BorderHighlight -Target $ParentFieldBorder -HighlightType $HighlightType
         }
     }
+
+    Stop-FunctionMeasurement -FunctionName 'Set-ElementHighlight'
 } # function Set-ElementHighlight
 
 function Reset-ElementHighlight {
     param([Parameter(Mandatory)][ref]$Element)
+    Start-FunctionMeasurement -FunctionName "Reset-ElementHighlight"
     $Target = Resolve-TargetElement $Element
     if (-not $Target) { return }
 
@@ -2963,6 +3293,7 @@ function Reset-ElementHighlight {
     if ($ParentFieldBorder) {
         Restore-ElementSearchStyle -Element $ParentFieldBorder
     }
+    Stop-FunctionMeasurement -FunctionName "Reset-ElementHighlight"
 } # function Reset-ElementHighlight
 
 function Test-ElementMatchesQuery {
@@ -2971,6 +3302,7 @@ function Test-ElementMatchesQuery {
         [Parameter(Mandatory)][string]$Query,
         [regex]$CompiledRegex = $null
     )
+    Start-FunctionMeasurement -FunctionName "Test-ElementMatchesQuery"
     if ([string]::IsNullOrWhiteSpace($Query) -and $null -eq $CompiledRegex) { return $false }
 
     $TestString = {
@@ -3069,11 +3401,13 @@ function Test-ElementMatchesQuery {
     if ($MatchedParts.Count -gt 0) {
         return $MatchedParts
     }
+    Stop-FunctionMeasurement -FunctionName "Test-ElementMatchesQuery"
     return $null
 } # function Test-ElementMatchesQuery
 
 function Clear-SearchHighlights {
     param([Parameter(Mandatory)][ref]$SearchBar)
+    Start-FunctionMeasurement -FunctionName "Clear-SearchHighlights"
 
     # Clean up all highlighted elements in $SearchOriginalStyles
     if ($SearchOriginalStyles.Count -gt 0) {
@@ -3098,10 +3432,12 @@ function Clear-SearchHighlights {
 
     $CountBlock = Find-ObjectWhere -Object $SearchBar -FindWhere { $_.Name -like "*$SearchCountNameSuffix" } -FindMax 1
     if ($CountBlock) { $CountBlock.Text = '' }
+    Stop-FunctionMeasurement -FunctionName "Clear-SearchHighlights"
 } # function Clear-SearchHighlights
 
 function Close-SearchBar {
     param([Parameter(Mandatory)]$ChildElement)
+    Start-FunctionMeasurement -FunctionName "Close-SearchBar"
     $SearchBar = Resolve-SearchBar $ChildElement
     if (-not $SearchBar) { return }
 
@@ -3125,6 +3461,7 @@ function Close-SearchBar {
     if ($ContentHeaderBorder) {
         $Menu = Get-WrapperMenu -Wrapper $ContentHeaderBorder
         if ($Menu) {
+            Ensure-WrapperActionButtons -Element $Target
             $SearchButton = Resolve-TargetElement (Find-ObjectWhere -Object ([ref]$Menu) -FindWhere { $_.Name -like "*$SearchButtonNameSuffix" } -FindMax 1)
             if ($SearchButton -and $SearchButton.Parent -and $SearchButton.Parent.Name -eq $MenuName) {
                 $SearchButton.Header = $SearchButtonHeader
@@ -3135,10 +3472,12 @@ function Close-SearchBar {
             }
         }
     }
+    Stop-FunctionMeasurement -FunctionName "Close-SearchBar"
 } # function Close-SearchBar
 
 function Invoke-SearchExecution {
     param([Parameter(Mandatory)]$SearchBox)
+    Start-FunctionMeasurement -FunctionName 'Invoke-SearchExecution'
 
     $SearchBar = Resolve-SearchBar $SearchBox
     if (-not $SearchBar) { return }
@@ -3222,6 +3561,8 @@ function Invoke-SearchExecution {
         $CountBlock.Text = "1 / $($MatchedElements.Count)"
         $CountBlock.Foreground = '#C1B8D1'
     }
+
+    Stop-FunctionMeasurement -FunctionName 'Invoke-SearchExecution'
 } # function Invoke-SearchExecution
 
 function Step-SearchMatch {
@@ -3229,6 +3570,7 @@ function Step-SearchMatch {
         [Parameter(Mandatory)]$ChildElement,
         [ValidateSet('Next', 'Prev')][string]$Direction = 'Next'
     )
+    Start-FunctionMeasurement -FunctionName "Step-SearchMatch"
 
     $SearchBar = Resolve-SearchBar $ChildElement
     if (-not $SearchBar -or -not $SearchBar.Tag -or $SearchBar.Tag.Matches.Count -eq 0) { return }
@@ -3265,18 +3607,20 @@ function Step-SearchMatch {
         $CountBlock.Text = "$($NewIdx + 1) / $($Matches.Count)"
         $CountBlock.Foreground = '#C1B8D1'
     }
+    Stop-FunctionMeasurement -FunctionName "Step-SearchMatch"
 } # function Step-SearchMatch
 
 function Get-WrapperSearchState {
     param(
         [Parameter(Mandatory)]$Wrapper
     )
+    Start-FunctionMeasurement -FunctionName "Get-WrapperSearchState"
     $Target = Resolve-TargetElement $Wrapper
     if (-not $Target) { return $null }
 
     # Stop at child wrappers so we only inspect the search bar of this wrapper
     $StopAtChild = { @($ContentHeaderBorderName, $ContentBorderName) -contains $_.Name }
-    $SearchBar = Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $_.Name -like "*$SearchBarNameSuffix" } -DepthMax 0 -DepthWhere $StopAtChild -FindMax 1
+    $SearchBar = if ($Tag.ContainsKey('SearchBar') -and $Tag.SearchBar) { $Tag.SearchBar } else { Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $_.Name -like "*$SearchBarNameSuffix" } -DepthMax 0 -DepthWhere $StopAtChild -FindMax 1 }
     if ($SearchBar -is [array]) { $SearchBar = $SearchBar[0] }
     if (-not $SearchBar) { return $null }
 
@@ -3309,6 +3653,7 @@ function Get-WrapperSearchState {
         currentIndex = $CurrentIndex
     }
 
+    Stop-FunctionMeasurement -FunctionName "Get-WrapperSearchState"
     return $SearchData
 } # function Get-WrapperSearchState
 
@@ -3317,20 +3662,19 @@ function Set-WrapperSearchState {
         [Parameter(Mandatory)]$Wrapper,
         $SearchData
     )
+    Start-FunctionMeasurement -FunctionName 'Set-WrapperSearchState'
     $Target = Resolve-TargetElement $Wrapper
     if (-not $Target) { return }
 
-    $StopAtChild = { @($ContentHeaderBorderName, $ContentBorderName) -contains $_.Name }
-    $SearchBar = Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $_.Name -like "*$SearchBarNameSuffix" } -DepthMax 0 -DepthWhere $StopAtChild -FindMax 1
-    if ($SearchBar -is [array]) { $SearchBar = $SearchBar[0] }
-    if (-not $SearchBar) { return }
-
     if ($null -eq $SearchData) {
-        if ($SearchBar.Visibility -eq 'Visible') {
-            Close-SearchBar -ChildElement $SearchBar
+        if ($Tag.ContainsKey('SearchBar') -and $Tag.SearchBar -and $Tag.SearchBar.Visibility -eq 'Visible') {
+            Close-SearchBar -ChildElement $Tag.SearchBar
         }
         return
     }
+
+    $SearchBar = if ($Tag.ContainsKey('SearchBar') -and $Tag.SearchBar) { $Tag.SearchBar } else { Get-OrCreateSearchBar -ContentHeaderBorder $Target }
+    if (-not $SearchBar) { return }
 
     $QueryEntry = Get-ObjectPropertyEntryCaseInsensitive -InputObject $SearchData -PropertyName 'Query'
     $UseRegexEntry = Get-ObjectPropertyEntryCaseInsensitive -InputObject $SearchData -PropertyName 'UseRegex'
@@ -3395,6 +3739,7 @@ function Set-WrapperSearchState {
 
         $Menu = Get-WrapperMenu -Wrapper $Target
         if ($Menu) {
+            Ensure-WrapperActionButtons -Element $Target
             $SearchButton = Resolve-TargetElement (Find-ObjectWhere -Object ([ref]$Menu) -FindWhere { $_.Name -like "*$SearchButtonNameSuffix" } -FindMax 1)
             if ($SearchButton -and $SearchButton.Parent -and $SearchButton.Parent.Name -eq $ButtonMenuName) {
                 $SearchButton.Header = $SearchButtonIcon
@@ -3415,34 +3760,46 @@ function Set-WrapperSearchState {
     if ($SearchInput -is [array]) { $SearchInput = $SearchInput[0] }
     if ($SearchInput) {
         $SearchInput.Text = $Query
-        Invoke-SearchExecution -SearchBox $SearchInput
 
-        # If a specific match index was saved and matches exist, navigate to that index
-        if ($IsOpen -and $SearchBar.Tag -and $SearchBar.Tag.Matches -and $SearchBar.Tag.Matches.Count -gt 0) {
-            $MatchCount = $SearchBar.Tag.Matches.Count
-            if ($TargetCurrentIndex -lt 0) { $TargetCurrentIndex = 0 }
-            if ($TargetCurrentIndex -ge $MatchCount) { $TargetCurrentIndex = $MatchCount - 1 }
+        # Defer execution to background dispatcher frame so UI renders immediately
+        $DeferredSearchAction = ({
+            if (-not $SearchInput) { return }
+            Invoke-SearchExecution -SearchBox $SearchInput
 
-            if ($TargetCurrentIndex -ne $SearchBar.Tag.CurrentIndex) {
-                $OldIdx = $SearchBar.Tag.CurrentIndex
-                $CompiledRegex = if ($SearchBar.Tag.ContainsKey('CompiledRegex')) { $SearchBar.Tag.CompiledRegex } else { $null }
+            # If a specific match index was saved and matches exist, navigate to that index
+            if ($IsOpen -and $SearchBar.Tag -and $SearchBar.Tag.Matches -and $SearchBar.Tag.Matches.Count -gt 0) {
+                $MatchCount = $SearchBar.Tag.Matches.Count
+                if ($TargetCurrentIndex -lt 0) { $TargetCurrentIndex = 0 }
+                if ($TargetCurrentIndex -ge $MatchCount) { $TargetCurrentIndex = $MatchCount - 1 }
 
-                if ($OldIdx -ge 0 -and $OldIdx -lt $MatchCount) {
-                    Set-ElementHighlight -Element ([ref]$SearchBar.Tag.Matches[$OldIdx]) -HighlightType 'Match' -Query $Query -CompiledRegex $CompiledRegex
-                }
+                if ($TargetCurrentIndex -ne $SearchBar.Tag.CurrentIndex) {
+                    $OldIdx = $SearchBar.Tag.CurrentIndex
+                    $CompiledRegex = if ($SearchBar.Tag.ContainsKey('CompiledRegex')) { $SearchBar.Tag.CompiledRegex } else { $null }
 
-                $SearchBar.Tag.CurrentIndex = $TargetCurrentIndex
-                Set-ElementHighlight -Element ([ref]$SearchBar.Tag.Matches[$TargetCurrentIndex]) -HighlightType 'Active' -Query $Query -CompiledRegex $CompiledRegex
-                $SearchBar.Tag.Matches[$TargetCurrentIndex].BringIntoView()
+                    if ($OldIdx -ge 0 -and $OldIdx -lt $MatchCount) {
+                        Set-ElementHighlight -Element ([ref]$SearchBar.Tag.Matches[$OldIdx]) -HighlightType 'Match' -Query $Query -CompiledRegex $CompiledRegex
+                    }
 
-                $CountBlock = Find-ObjectWhere -Object ([ref]$SearchBar) -FindWhere { $_.Name -like "*$SearchCountNameSuffix" } -FindMax 1
-                if ($CountBlock) {
-                    $CountBlock.Text = "$($TargetCurrentIndex + 1) / $MatchCount"
-                    $CountBlock.Foreground = '#C1B8D1'
+                    $SearchBar.Tag.CurrentIndex = $TargetCurrentIndex
+                    Set-ElementHighlight -Element ([ref]$SearchBar.Tag.Matches[$TargetCurrentIndex]) -HighlightType 'Active' -Query $Query -CompiledRegex $CompiledRegex
+                    $SearchBar.Tag.Matches[$TargetCurrentIndex].BringIntoView()
+
+                    $CountBlock = Find-ObjectWhere -Object ([ref]$SearchBar) -FindWhere { $_.Name -like "*$SearchCountNameSuffix" } -FindMax 1
+                    if ($CountBlock) {
+                        $CountBlock.Text = "$($TargetCurrentIndex + 1) / $MatchCount"
+                        $CountBlock.Foreground = '#C1B8D1'
+                    }
                 }
             }
-        }
+        }).GetNewClosure()
+
+        [System.Windows.Threading.Dispatcher]::CurrentDispatcher.BeginInvoke(
+            [System.Windows.Threading.DispatcherPriority]::Background,
+            [System.Action]$DeferredSearchAction
+        ) | Out-Null
     }
+
+    Stop-FunctionMeasurement -FunctionName 'Set-WrapperSearchState'
 } # function Set-WrapperSearchState
 
 #endregion #4 Search
@@ -3453,6 +3810,7 @@ function Get-MatchedSlotItems {
     param(
         [Parameter(Mandatory)]$ChildElement
     )
+    Start-FunctionMeasurement -FunctionName "Get-MatchedSlotItems"
     $SearchBar = Resolve-SearchBar $ChildElement
     if (-not $SearchBar) { return $null }
 
@@ -3495,6 +3853,7 @@ function Get-MatchedSlotItems {
         Matched     = $MatchedItems
         NonMatched  = $NonMatchedItems
     }
+    Stop-FunctionMeasurement -FunctionName "Get-MatchedSlotItems"
 } # function Get-MatchedSlotItems
 
 function Invoke-SearchFilterAction {
@@ -3502,6 +3861,7 @@ function Invoke-SearchFilterAction {
         [Parameter(Mandatory)]$ChildElement,
         [ValidateSet('ShowOnly', 'Hide', 'ShowAll')][string]$Action = 'ShowOnly'
     )
+    Start-FunctionMeasurement -FunctionName 'Invoke-SearchFilterAction'
     $SlotInfo = Get-MatchedSlotItems -ChildElement $ChildElement
     if (-not $SlotInfo) { return }
 
@@ -3544,6 +3904,8 @@ function Invoke-SearchFilterAction {
             }
         }
     }
+
+    Stop-FunctionMeasurement -FunctionName 'Invoke-SearchFilterAction'
 } # function Invoke-SearchFilterAction
 
 #endregion #4 Filter
@@ -3554,6 +3916,7 @@ function Get-MatchedWrappers {
     param(
         [Parameter(Mandatory)]$ChildElement
     )
+    Start-FunctionMeasurement -FunctionName "Get-MatchedWrappers"
     $SearchBar = Resolve-SearchBar $ChildElement
     if (-not $SearchBar) { return $null }
 
@@ -3572,6 +3935,7 @@ function Get-MatchedWrappers {
         SearchBar = $SearchBar
         Matched   = $MatchedWrappers
     }
+    Stop-FunctionMeasurement -FunctionName "Get-MatchedWrappers"
 } # function Get-MatchedWrappers
 
 function Invoke-SearchMatchesSort {
@@ -3579,6 +3943,7 @@ function Invoke-SearchMatchesSort {
         [Parameter(Mandatory)]$SearchBar,
         [ValidateSet('Ascending', 'Descending')][string]$Direction = 'Ascending'
     )
+    Start-FunctionMeasurement -FunctionName 'Invoke-SearchMatchesSort'
     $MatchedElements = if ($SearchBar.Tag -and $SearchBar.Tag.Matches) { @($SearchBar.Tag.Matches) } else { @() }
     if ($MatchedElements.Count -eq 0) { return }
 
@@ -3701,6 +4066,8 @@ function Invoke-SearchMatchesSort {
 
         Reset-ArrayIndexes ([ref]$ContentSlot)
     }
+
+    Stop-FunctionMeasurement -FunctionName 'Invoke-SearchMatchesSort'
 } # function Invoke-SearchMatchesSort
 
 function Invoke-SearchBatchAction {
@@ -3708,6 +4075,7 @@ function Invoke-SearchBatchAction {
         [Parameter(Mandatory)]$ChildElement,
         [ValidateSet('SortAscending', 'SortDescending', 'Random', 'Clear', 'Disable', 'Enable', 'Delete', 'Lock', 'Unlock')][string]$Action = 'Random'
     )
+    Start-FunctionMeasurement -FunctionName 'Invoke-SearchBatchAction'
     $MatchInfo = Get-MatchedWrappers -ChildElement $ChildElement
     if (-not $MatchInfo -or $MatchInfo.Matched.Count -eq 0) { return }
 
@@ -3782,6 +4150,8 @@ function Invoke-SearchBatchAction {
     if ($SearchInput) {
         Invoke-SearchExecution -SearchBox $SearchInput
     }
+
+    Stop-FunctionMeasurement -FunctionName 'Invoke-SearchBatchAction'
 } # function Invoke-SearchBatchAction
 
 #endregion #4 Batch
@@ -3792,16 +4162,20 @@ function Invoke-SearchBatchAction {
 
 function Invoke-DateTimeNowButtonClick {
     param($Calendar, $HourCombo, $MinuteCombo, $SecondCombo)
+    Start-FunctionMeasurement -FunctionName 'Invoke-DateTimeNowButtonClick'
     $now = Get-Date
     $Calendar.SelectedDate = $now.Date
     $Calendar.DisplayDate = $now.Date
     $HourCombo.SelectedItem = $now.ToString('HH')
     $MinuteCombo.SelectedItem = $now.ToString('mm')
     $SecondCombo.SelectedItem = $now.ToString('ss')
+
+    Stop-FunctionMeasurement -FunctionName 'Invoke-DateTimeNowButtonClick'
 } # function Invoke-DateTimeNowButtonClick
 
 function Invoke-DateTimeOkButtonClick {
     param($Calendar, $HourCombo, $MinuteCombo, $SecondCombo, $PickButton, $Dialog)
+    Start-FunctionMeasurement -FunctionName 'Invoke-DateTimeOkButtonClick'
     $selDate = if ($Calendar.SelectedDate) { $Calendar.SelectedDate } else { (Get-Date).Date }
     $h = [int]($HourCombo.SelectedItem -as [int])
     $m = [int]($MinuteCombo.SelectedItem -as [int])
@@ -3812,15 +4186,21 @@ function Invoke-DateTimeOkButtonClick {
     $ContentDateTimeDisplayTextBox = Find-ObjectWhere -Object ([ref]$CustomDateTimePicker) -FindWhere { $_.Name -eq $ContentDateTimeDisplayTextBoxName }
     $ContentDateTimeDisplayTextBox.Text = $finalDateTime.ToString('yyyy-MM-dd HH:mm:ss')
     $Dialog.Close()
+
+    Stop-FunctionMeasurement -FunctionName 'Invoke-DateTimeOkButtonClick'
 } # function Invoke-DateTimeOkButtonClick
 
 function Invoke-DateTimeCancelButtonClick {
     param($Dialog)
+    Start-FunctionMeasurement -FunctionName 'Invoke-DateTimeCancelButtonClick'
     $Dialog.Close()
+
+    Stop-FunctionMeasurement -FunctionName 'Invoke-DateTimeCancelButtonClick'
 } # function Invoke-DateTimeCancelButtonClick
 
 function Invoke-SearchItemButtonClick {
     param($s, $e, $TargetButton, $ActionType, $ActionName)
+    Start-FunctionMeasurement -FunctionName 'Invoke-SearchItemButtonClick'
     if ($TargetButton.Tag) {
         $TargetButton.Tag.IsOpen = $false
     }
@@ -3830,41 +4210,56 @@ function Invoke-SearchItemButtonClick {
     else {
         Invoke-SearchBatchAction -ChildElement $TargetButton -Action $ActionName
     }
+
+    Stop-FunctionMeasurement -FunctionName 'Invoke-SearchItemButtonClick'
 } # function Invoke-SearchItemButtonClick
 
 function Invoke-SearchActionsButtonClick {
     param($s, $e)
+    Start-FunctionMeasurement -FunctionName 'Invoke-SearchActionsButtonClick'
     if ($s.Tag) {
         $s.Tag.IsOpen = -not $s.Tag.IsOpen
     }
+
+    Stop-FunctionMeasurement -FunctionName 'Invoke-SearchActionsButtonClick'
 } # function Invoke-SearchActionsButtonClick
 
 function New-ContentEnum {
     param([type]$EnumType)
+    Start-FunctionMeasurement -FunctionName 'New-ContentEnum'
     New-BaseComboBox @{
         Name        = $ContentElementName
         ItemsSource = $EnumType.GetEnumNames()
         Margin      = 2
     }
+
+    Stop-FunctionMeasurement -FunctionName 'New-ContentEnum'
 } # function New-ContentEnum
 
 function New-ContentPassword {
+    Start-FunctionMeasurement -FunctionName 'New-ContentPassword'
     New-BasePasswordBox @{
         Name   = $ContentElementName
         Margin = 2
     }
+
+    Stop-FunctionMeasurement -FunctionName 'New-ContentPassword'
 } # function New-ContentPassword
 
 function New-ContentString {
+    Start-FunctionMeasurement -FunctionName 'New-ContentString'
     New-BaseRichTextBox @{
         Name      = $ContentElementName
         Margin    = 2
         AllowDrop = $false
     }
+
+    Stop-FunctionMeasurement -FunctionName 'New-ContentString'
 } # function New-ContentString
 
 function New-ContentNumber {
     param( [type]$TargetType )
+    Start-FunctionMeasurement -FunctionName 'New-ContentNumber'
     $TextBox = New-BaseTextBox @{
         Name   = $ContentElementName
         Tag    = @{ TargetType = $TargetType }
@@ -3914,9 +4309,12 @@ function New-ContentNumber {
         })
 
     $TextBox
+
+    Stop-FunctionMeasurement -FunctionName 'New-ContentNumber'
 } # function New-ContentNumber
 
 function New-ContentBoolean {
+    Start-FunctionMeasurement -FunctionName 'New-ContentBoolean'
     New-BaseComboBox @{
         Name        = $ContentElementName
         ItemsSource = @(
@@ -3924,6 +4322,8 @@ function New-ContentBoolean {
             $false
         )
     }
+
+    Stop-FunctionMeasurement -FunctionName 'New-ContentBoolean'
 } # function New-ContentBoolean
 
 function New-ContentDateTime {
@@ -3931,6 +4331,7 @@ function New-ContentDateTime {
         [hashtable]$Parameters = @{},
         $SelectedDateTime = (Get-Date)
     )
+    Start-FunctionMeasurement -FunctionName 'New-ContentDateTime'
 
     $Grid = [System.Windows.Controls.Grid]@{
         Name                = $CustomDateTimePickerName
@@ -3962,6 +4363,7 @@ function New-ContentDateTime {
     }
     [System.Windows.Controls.Grid]::SetColumn($TextBox, 0)
     $Grid.Children.Add($TextBox) | Out-Null
+    $Grid.Tag = @{ DateBox = $TextBox }
 
     $PickButton = New-BaseButton @{
         Content           = ' 📅 '
@@ -4072,10 +4474,13 @@ function New-ContentDateTime {
             [void]$Dialog.ShowDialog()
         })
 
-    return $Grid
+    $ReturnValue = $Grid
+    Stop-FunctionMeasurement -FunctionName 'New-ContentDateTime'
+    return $ReturnValue
 } # function New-ContentDateTime
 
 function New-ContentChar {
+    Start-FunctionMeasurement -FunctionName 'New-ContentChar'
     $CharBox = New-BaseTextBox @{
         Name      = $ContentElementName
         Tag       = @{ TargetType = [char] }
@@ -4100,10 +4505,13 @@ function New-ContentChar {
         }
     )
     $CharBox
+
+    Stop-FunctionMeasurement -FunctionName 'New-ContentChar'
 } # function New-ContentChar
 
 function New-DragHandle {
     param($WrapperName)
+    Start-FunctionMeasurement -FunctionName 'New-DragHandle'
 
     $DragHandle = New-BaseTextBlock @{
         Text              = $DragHandleIcon
@@ -4120,10 +4528,13 @@ function New-DragHandle {
         }
     )
     $DragHandle
+
+    Stop-FunctionMeasurement -FunctionName 'New-DragHandle'
 } # function New-DragHandle
 
 function Add-DragDropLogic {
     param([ref]$DragDropTarget)
+    Start-FunctionMeasurement -FunctionName "Add-DragDropLogic"
 
     $DragDropTarget.Value.AllowDrop = $true
     $DragDropTarget.Value.Uid = [guid]::NewGuid().ToString()
@@ -4205,6 +4616,7 @@ function Add-DragDropLogic {
 
             Reset-ArrayIndexes ([ref]$Array)
         })
+    Stop-FunctionMeasurement -FunctionName "Add-DragDropLogic"
 } # function Add-DragDropLogic
 
 function New-IndexBox {
@@ -4212,6 +4624,7 @@ function New-IndexBox {
         $WrapperName,
         [int]$Index = $Index + 1
     )
+    Start-FunctionMeasurement -FunctionName 'New-IndexBox'
     $IndexBlock = New-BaseTextBox @{
         Text              = "$Index"
         Margin            = '1,0,1,0'
@@ -4260,12 +4673,15 @@ function New-IndexBox {
         }
     )
     $IndexBlock
+
+    Stop-FunctionMeasurement -FunctionName 'New-IndexBox'
 } # function New-IndexBox
 
 function New-SearchBar {
     param(
         [string]$WrapperName = $ContentHeaderBorderName
     )
+    Start-FunctionMeasurement -FunctionName 'New-SearchBar'
 
     $SearchBarBorder = New-BaseBorder @{
         Name            = "$WrapperName`_$SearchBarNameSuffix"
@@ -4561,8 +4977,49 @@ function New-SearchBar {
     $PrevButton.Add_Click({ param($s, $e) Invoke-SearchStepButtonClick $s $e -Direction 'Prev' })
     $CloseButton.Add_Click({ param($s, $e) Invoke-SearchCloseButtonClick $s $e })
 
-    return $SearchBarBorder
+    $ReturnValue = $SearchBarBorder
+    Stop-FunctionMeasurement -FunctionName 'New-SearchBar'
+    return $ReturnValue
 } # function New-SearchBar
+
+function Get-OrCreateSearchBar {
+    param([Parameter(Mandatory = $true)]$ContentHeaderBorder)
+    Start-FunctionMeasurement -FunctionName "Get-OrCreateSearchBar"
+    $TargetBorder = Resolve-TargetElement $ContentHeaderBorder
+    if (-not $TargetBorder) { return $null }
+    if ($TargetBorder.Tag -is [hashtable] -and $TargetBorder.Tag.ContainsKey('SearchBar') -and $TargetBorder.Tag.SearchBar) {
+        return $TargetBorder.Tag.SearchBar
+    }
+
+    $ContentHeaderBorderStack = Find-ObjectWhere -Object ([ref]$TargetBorder) -FindWhere { $_.Name -eq $ContentHeaderBorderStackName } -FindMax 1
+    if (-not $ContentHeaderBorderStack) { return $null }
+
+    $SearchBar = $ContentHeaderBorderStack.Children | Where-Object { $_.Name -like "*$SearchBarNameSuffix" }
+    if ($SearchBar) {
+        if ($TargetBorder.Tag -is [hashtable]) { $TargetBorder.Tag.SearchBar = $SearchBar }
+        return $SearchBar
+    }
+
+    $SearchBar = New-SearchBar -WrapperName $TargetBorder.Name
+    $SlotIndex = -1
+    for ($i = 0; $i -lt $ContentHeaderBorderStack.Children.Count; $i++) {
+        if ($ContentHeaderBorderStack.Children[$i].Name -eq $ContentSlotElementName) {
+            $SlotIndex = $i
+            break
+        }
+    }
+    if ($SlotIndex -ge 0) {
+        $ContentHeaderBorderStack.Children.Insert($SlotIndex, $SearchBar)
+    }
+    else {
+        $ContentHeaderBorderStack.Children.Add($SearchBar) | Out-Null
+    }
+
+    if (-not ($TargetBorder.Tag -is [hashtable])) { $TargetBorder.Tag = @{} }
+    $TargetBorder.Tag.SearchBar = $SearchBar
+    Stop-FunctionMeasurement -FunctionName "Get-OrCreateSearchBar"
+    return $SearchBar
+} # function Get-OrCreateSearchBar
 
 #endregion #3 Content Controls Elements
 
@@ -4570,6 +5027,7 @@ function New-SearchBar {
 
 function Invoke-SearchRegexButtonClick {
     param($s, $e)
+    Start-FunctionMeasurement -FunctionName 'Invoke-SearchRegexButtonClick'
     $SearchBarBorder = Resolve-SearchBar $s
     if (-not $SearchBarBorder) { return }
 
@@ -4592,6 +5050,8 @@ function Invoke-SearchRegexButtonClick {
     if ($SearchInput) {
         Invoke-SearchExecution -SearchBox $SearchInput
     }
+
+    Stop-FunctionMeasurement -FunctionName 'Invoke-SearchRegexButtonClick'
 } # function Invoke-SearchRegexButtonClick
 
 function Invoke-SearchStepButtonClick {
@@ -4600,12 +5060,18 @@ function Invoke-SearchStepButtonClick {
         $e,
         [ValidateSet('Next', 'Prev')][string]$Direction = 'Next'
     )
+    Start-FunctionMeasurement -FunctionName 'Invoke-SearchStepButtonClick'
     Step-SearchMatch -ChildElement $s -Direction $Direction
+
+    Stop-FunctionMeasurement -FunctionName 'Invoke-SearchStepButtonClick'
 } # function Invoke-SearchStepButtonClick
 
 function Invoke-SearchCloseButtonClick {
     param($s, $e)
+    Start-FunctionMeasurement -FunctionName 'Invoke-SearchCloseButtonClick'
     Close-SearchBar -ChildElement $s
+
+    Stop-FunctionMeasurement -FunctionName 'Invoke-SearchCloseButtonClick'
 } # function Invoke-SearchCloseButtonClick
 
 function Set-ContentSlotCollapseState {
@@ -4615,6 +5081,7 @@ function Set-ContentSlotCollapseState {
         $ContentHeaderBorder,
         [Parameter(Mandatory = $true)][bool]$Collapse
     )
+    Start-FunctionMeasurement -FunctionName 'Set-ContentSlotCollapseState'
     if (-not $ContentHeaderBorder -and $MinMaxButton) {
         $ContentHeaderBorder = Find-ObjectWhere -Object ([ref]$MinMaxButton) -FindWhere { $_.Name -eq $ContentHeaderBorderName } -DigProperties 'Parent' -FindMax 1
     }
@@ -4666,10 +5133,13 @@ function Set-ContentSlotCollapseState {
             }
         }
     }
+
+    Stop-FunctionMeasurement -FunctionName 'Set-ContentSlotCollapseState'
 } # function Set-ContentSlotCollapseState
 
 function Invoke-MinMaxButtonClick {
     param($s, $e)
+    Start-FunctionMeasurement -FunctionName 'Invoke-MinMaxButtonClick'
     if ([System.Windows.Forms.Control]::ModifierKeys -match 'Shift') {
         $AlternateBehavior = $true
     }
@@ -4698,10 +5168,13 @@ function Invoke-MinMaxButtonClick {
             -ContentHeaderBorder $ContentHeaderBorder `
             -Collapse ($s.Header -eq $MinMaxButtonMinedIcon)
     }
+
+    Stop-FunctionMeasurement -FunctionName 'Invoke-MinMaxButtonClick'
 } # function Invoke-MinMaxButtonClick
 
 function Invoke-AddArrayItemButtonClick {
     param($s, $e)
+    Start-FunctionMeasurement -FunctionName 'Invoke-AddArrayItemButtonClick'
     if ($s -and -not $s.IsEnabled) { return }
     $ContentHeaderBorder = Find-ObjectWhere -Object ([ref]$s) -FindWhere { $_.Name -eq $ContentHeaderBorderName } -DigProperties 'Parent' -FindMax 1
     if ($ContentHeaderBorder) {
@@ -4714,6 +5187,8 @@ function Invoke-AddArrayItemButtonClick {
         Add-ContentToWrapper ([ref]$ContentHeaderBorder) ([ref]$NewItem)
         Update-ArrayButtonsState -Wrapper $ContentHeaderBorder
     }
+
+    Stop-FunctionMeasurement -FunctionName 'Invoke-AddArrayItemButtonClick'
 } # function Invoke-AddArrayItemButtonClick
 
 function Get-QuickSetActionContext {
@@ -4723,6 +5198,7 @@ function Get-QuickSetActionContext {
         [switch]$IncludeTypeDirectory,
         [switch]$FallbackToDisplayName
     )
+    Start-FunctionMeasurement -FunctionName "Get-QuickSetActionContext"
     $TargetWrapper = Get-QuickSetWrapper $Sender
     if (-not $TargetWrapper) { return $null }
     $QSMenu = Get-QuickSetMenuFromSender $Sender
@@ -4762,6 +5238,7 @@ function Get-QuickSetActionContext {
         TypeDir        = $TypeDir
         ActiveFilePath = $ActiveFilePath
     }
+    Stop-FunctionMeasurement -FunctionName "Get-QuickSetActionContext"
 } # function Get-QuickSetActionContext
 
 function Request-ValidatedQuickSetTarget {
@@ -4773,6 +5250,7 @@ function Request-ValidatedQuickSetTarget {
         [string]$RejectIfSameAs,
         [string]$SkipConfirmForName
     )
+    Start-FunctionMeasurement -FunctionName "Request-ValidatedQuickSetTarget"
     $RawName = Show-QuickSetInputDialog -Title $Title -Prompt $Prompt -DefaultValue $DefaultValue
     if ([string]::IsNullOrWhiteSpace($RawName)) { return $null }
 
@@ -4790,18 +5268,23 @@ function Request-ValidatedQuickSetTarget {
         Name     = $SanitizedName
         FilePath = $TargetFilePath
     }
+    Stop-FunctionMeasurement -FunctionName "Request-ValidatedQuickSetTarget"
 } # function Request-ValidatedQuickSetTarget
 
 function Invoke-QuickSetRefreshButtonClick {
     param($s, $e)
+    Start-FunctionMeasurement -FunctionName 'Invoke-QuickSetRefreshButtonClick'
     $Ctx = Get-QuickSetActionContext -Sender $s
     if ($Ctx -and $Ctx.QSMenu) {
         Update-QuickSetSubMenu -QuickSetMenuItem $Ctx.QSMenu -Wrapper $Ctx.TargetWrapper
     }
+
+    Stop-FunctionMeasurement -FunctionName 'Invoke-QuickSetRefreshButtonClick'
 } # function Invoke-QuickSetRefreshButtonClick
 
 function Invoke-QuickSetSaveButtonClick {
     param($s, $e)
+    Start-FunctionMeasurement -FunctionName 'Invoke-QuickSetSaveButtonClick'
     $Ctx = Get-QuickSetActionContext -Sender $s -RequireActiveForAction 'save'
     if (-not $Ctx) { return }
 
@@ -4811,10 +5294,13 @@ function Invoke-QuickSetSaveButtonClick {
             Update-QuickSetSubMenu -QuickSetMenuItem $Ctx.QSMenu -Wrapper $Ctx.TargetWrapper
         }
     }
+
+    Stop-FunctionMeasurement -FunctionName 'Invoke-QuickSetSaveButtonClick'
 } # function Invoke-QuickSetSaveButtonClick
 
 function Invoke-QuickSetRenameButtonClick {
     param($s, $e)
+    Start-FunctionMeasurement -FunctionName 'Invoke-QuickSetRenameButtonClick'
     $Ctx = Get-QuickSetActionContext -Sender $s -RequireActiveForAction 'rename' -IncludeTypeDirectory
     if (-not $Ctx) { return }
 
@@ -4833,10 +5319,13 @@ function Invoke-QuickSetRenameButtonClick {
     if ($Ctx.QSMenu) {
         Update-QuickSetSubMenu -QuickSetMenuItem $Ctx.QSMenu -Wrapper $Ctx.TargetWrapper
     }
+
+    Stop-FunctionMeasurement -FunctionName 'Invoke-QuickSetRenameButtonClick'
 } # function Invoke-QuickSetRenameButtonClick
 
 function Invoke-QuickSetSaveAsButtonClick {
     param($s, $e)
+    Start-FunctionMeasurement -FunctionName 'Invoke-QuickSetSaveAsButtonClick'
     $Ctx = Get-QuickSetActionContext -Sender $s -IncludeTypeDirectory -FallbackToDisplayName
     if (-not $Ctx) { return }
 
@@ -4850,10 +5339,13 @@ function Invoke-QuickSetSaveAsButtonClick {
         Set-QuickSetActiveButtonsState -QuickSetMenuItem $Ctx.QSMenu -IsEnabled $true
         Update-QuickSetSubMenu -QuickSetMenuItem $Ctx.QSMenu -Wrapper $Ctx.TargetWrapper
     }
+
+    Stop-FunctionMeasurement -FunctionName 'Invoke-QuickSetSaveAsButtonClick'
 } # function Invoke-QuickSetSaveAsButtonClick
 
 function Invoke-QuickSetDeleteButtonClick {
     param($s, $e)
+    Start-FunctionMeasurement -FunctionName 'Invoke-QuickSetDeleteButtonClick'
     $Ctx = Get-QuickSetActionContext -Sender $s -RequireActiveForAction 'delete' -IncludeTypeDirectory
     if (-not $Ctx) { return }
 
@@ -4870,10 +5362,13 @@ function Invoke-QuickSetDeleteButtonClick {
         Set-QuickSetActiveButtonsState -QuickSetMenuItem $Ctx.QSMenu -IsEnabled $false
         Update-QuickSetSubMenu -QuickSetMenuItem $Ctx.QSMenu -Wrapper $Ctx.TargetWrapper
     }
+
+    Stop-FunctionMeasurement -FunctionName 'Invoke-QuickSetDeleteButtonClick'
 } # function Invoke-QuickSetDeleteButtonClick
 
 function Invoke-QuickSetClearButtonClick {
     param($s, $e)
+    Start-FunctionMeasurement -FunctionName 'Invoke-QuickSetClearButtonClick'
     try {
         $Ctx = Get-QuickSetActionContext -Sender $s
         if (-not $Ctx) { return }
@@ -4882,10 +5377,13 @@ function Invoke-QuickSetClearButtonClick {
     catch {
         [System.Windows.MessageBox]::Show("Error saving QuickSet: $_", "QuickSet Error") | Out-Null
     }
+
+    Stop-FunctionMeasurement -FunctionName 'Invoke-QuickSetClearButtonClick'
 } # function Invoke-QuickSetClearButtonClick
 
 function Invoke-QuickSetCloseButtonClick {
     param($s, $e)
+    Start-FunctionMeasurement -FunctionName 'Invoke-QuickSetCloseButtonClick'
     try {
         $Ctx = Get-QuickSetActionContext -Sender $s
         if (-not $Ctx) { return }
@@ -4894,22 +5392,31 @@ function Invoke-QuickSetCloseButtonClick {
     catch {
         [System.Windows.MessageBox]::Show("Error closing QuickSet: $_", "QuickSet Error") | Out-Null
     }
+
+    Stop-FunctionMeasurement -FunctionName 'Invoke-QuickSetCloseButtonClick'
 } # function Invoke-QuickSetCloseButtonClick
 
 function Invoke-ClearButtonClick {
     param($s, $e)
+    Start-FunctionMeasurement -FunctionName 'Invoke-ClearButtonClick'
     $ContentWrapper = Get-ContentWrapperFromButton -Button $s -Suffix $ClearButtonNameSuffix
     if ($ContentWrapper) { Clear-WrapperContent ([ref]$ContentWrapper) }
+
+    Stop-FunctionMeasurement -FunctionName 'Invoke-ClearButtonClick'
 } # function Invoke-ClearButtonClick
 
 function Invoke-RandomValuesButtonClick {
     param($s, $e)
+    Start-FunctionMeasurement -FunctionName 'Invoke-RandomValuesButtonClick'
     $ContentWrapper = Get-ContentWrapperFromButton -Button $s -Suffix $RandomValuesButtonNameSuffix
     if ($ContentWrapper) { Set-WrapperRandomContent ([ref]$ContentWrapper) }
+
+    Stop-FunctionMeasurement -FunctionName 'Invoke-RandomValuesButtonClick'
 } # function Invoke-RandomValuesButtonClick
 
 function Invoke-DisableEnableButtonClick {
     param($s, $e)
+    Start-FunctionMeasurement -FunctionName 'Invoke-DisableEnableButtonClick'
     if ((Get-IsLocked $s)) { return }
     $IsAll = $s.Header -like '* All' -or ($s.Tag -is [hashtable] -and $s.Tag.IsAll)
     $TargetDisabledState = ($s.Icon -eq $DisableEnableButtonIconEnabled)
@@ -4927,10 +5434,13 @@ function Invoke-DisableEnableButtonClick {
     else {
         Confirm-ArrayEnableButton -Item ([ref]$s)
     }
+
+    Stop-FunctionMeasurement -FunctionName 'Invoke-DisableEnableButtonClick'
 } # function Invoke-DisableEnableButtonClick
 
 function Invoke-DeleteButtonClick {
     param($s, $e)
+    Start-FunctionMeasurement -FunctionName 'Invoke-DeleteButtonClick'
     if ((Get-IsLocked $s)) { return }
     $ContentWrapper = Get-ContentWrapperFromButton -Button $s -Suffix $DeleteButtonNameSuffix
     if (-not $ContentWrapper) { return }
@@ -4950,10 +5460,13 @@ function Invoke-DeleteButtonClick {
             Sync-ArraySlotState -ContentSlot $Array
         }
     }
+
+    Stop-FunctionMeasurement -FunctionName 'Invoke-DeleteButtonClick'
 } # function Invoke-DeleteButtonClick
 
 function Invoke-SearchButtonClick {
     param($s, $e)
+    Start-FunctionMeasurement -FunctionName 'Invoke-SearchButtonClick'
     if ($s -and -not $s.IsEnabled) { return }
     $ContentHeaderBorder = Get-ParentWrapperBorder -Element $s -HeaderOnly
     if (-not $ContentHeaderBorder) { return }
@@ -4961,10 +5474,7 @@ function Invoke-SearchButtonClick {
     $ContentHeaderBorderStack = Find-ObjectWhere -Object ([ref]$ContentHeaderBorder) -FindWhere { $_.Name -eq $ContentHeaderBorderStackName } -FindMax 1
     if (-not $ContentHeaderBorderStack) { return }
 
-    $SearchBar = $ContentHeaderBorderStack.Children | Where-Object { $_.Name -like "*$SearchBarNameSuffix" }
-    if (-not $SearchBar) {
-        $SearchBar = Find-ObjectWhere -Object ([ref]$ContentHeaderBorder) -FindWhere { $_.Name -like "*$SearchBarNameSuffix" } -FindMax 1
-    }
+    $SearchBar = if ($ContentHeaderBorder.Tag -is [hashtable] -and $ContentHeaderBorder.Tag.SearchBar) { $ContentHeaderBorder.Tag.SearchBar } else { Get-OrCreateSearchBar -ContentHeaderBorder $ContentHeaderBorder }
     if (-not $SearchBar) { return }
 
     if ($SearchBar.Visibility -eq 'Visible') {
@@ -4997,10 +5507,13 @@ function Invoke-SearchButtonClick {
             $SearchInput.SelectAll()
         }
     }
+
+    Stop-FunctionMeasurement -FunctionName 'Invoke-SearchButtonClick'
 } # function Invoke-SearchButtonClick
 
 function Invoke-LockUnlockButtonClick {
     param($s, $e)
+    Start-FunctionMeasurement -FunctionName 'Invoke-LockUnlockButtonClick'
     switch ($s.Icon) {
         $LockUnlockButtonIconLocked {
             $s.Header = $LockUnlockButtonHeaderUnlocked
@@ -5015,20 +5528,26 @@ function Invoke-LockUnlockButtonClick {
             Set-LockableButtonsState -LockButton $s -IsEnabled $false
         }
     }
+
+    Stop-FunctionMeasurement -FunctionName 'Invoke-LockUnlockButtonClick'
 } # function Invoke-LockUnlockButtonClick
 
 function New-MinMaxButton {
+    Start-FunctionMeasurement -FunctionName 'New-MinMaxButton'
     $MinMaxButton = New-BaseMenuItem @{
         Name    = $MinMaxButtonName
         Header  = $MinMaxButtonMinedIcon
         ToolTip = $MinMaxButtonMinedToolTip
     }
     $MinMaxButton.Add_Click({ param($s, $e) Invoke-MinMaxButtonClick $s $e })
-    return $MinMaxButton
+    $ReturnValue = $MinMaxButton
+    Stop-FunctionMeasurement -FunctionName 'New-MinMaxButton'
+    return $ReturnValue
 } # function New-MinMaxButton
 
 function New-AddArrayItemButton {
     param( [type]$Type )
+    Start-FunctionMeasurement -FunctionName 'New-AddArrayItemButton'
     $AddArrayItemButton = New-BaseMenuItem @{
         Name    = $AddArrayItemButtonName
         Tag     = $Type.FullName
@@ -5038,7 +5557,9 @@ function New-AddArrayItemButton {
     $AddArrayItemButton.Add_Click({ param($s, $e) Invoke-AddArrayItemButtonClick $s $e })
     Add-LockableButtonToolTip -Button $AddArrayItemButton -ToolTip $AddArrayItemButtonToolTip
 
-    return $AddArrayItemButton
+    $ReturnValue = $AddArrayItemButton
+    Stop-FunctionMeasurement -FunctionName 'New-AddArrayItemButton'
+    return $ReturnValue
 } # function New-AddArrayItemButton
 
 function New-QuickSetMenuItem {
@@ -5046,6 +5567,7 @@ function New-QuickSetMenuItem {
         [string]$ActionFrom = $ContentHeaderBorderName,
         [bool]$IsConstruct = $false
     )
+    Start-FunctionMeasurement -FunctionName 'New-QuickSetMenuItem'
 
     $QuickSetMenu = New-BaseMenuItem @{
         Name    = "$ActionFrom`_$QuickSetMenuNameSuffix"
@@ -5140,20 +5662,24 @@ function New-QuickSetMenuItem {
     $CloseButton.Add_Click({ param($s, $e) Invoke-QuickSetCloseButtonClick $s $e })
     $DeleteButton.Add_Click({ param($s, $e) Invoke-QuickSetDeleteButtonClick $s $e })
 
-    # Populate the Set submenu once, the first time the QuickSet menu is loaded into the visual tree
+    # Populate the Set submenu once, the first time the QuickSet menu is opened
     $LoadedState = @{ HasRefreshed = $false }
-    $QuickSetMenu.Add_Loaded(({
+    $QuickSetMenu.Add_SubmenuOpened(({
                 param($s, $e)
+                if ($e.Source -ne $s) { return }
                 if ($LoadedState.HasRefreshed) { return }
                 $LoadedState.HasRefreshed = $true
                 Invoke-QuickSetRefreshButtonClick $s $e
             }).GetNewClosure())
 
-    return $QuickSetMenu
+    $ReturnValue = $QuickSetMenu
+    Stop-FunctionMeasurement -FunctionName 'New-QuickSetMenuItem'
+    return $ReturnValue
 } # function New-QuickSetMenuItem
 
 function Test-IsSimpleContentType {
     param($Type)
+    Start-FunctionMeasurement -FunctionName "Test-IsSimpleContentType"
     if (-not $Type) { return $true }
     $ResolvedType = if ($Type -is [type]) { $Type } else { $Type -as [type] }
     if (-not $ResolvedType) { return $true }
@@ -5168,6 +5694,7 @@ function Test-IsSimpleContentType {
     if ($FullName -like 'System.Int*' -or $FullName -like 'System.UInt*') {
         return $true
     }
+    Stop-FunctionMeasurement -FunctionName "Test-IsSimpleContentType"
     return $false
 } # function Test-IsSimpleContentType
 
@@ -5176,6 +5703,7 @@ function Get-WrapperSortableScalarValue {
         [Parameter(Mandatory)]$Wrapper,
         [switch]$SortByArrayCount
     )
+    Start-FunctionMeasurement -FunctionName "Get-WrapperSortableScalarValue"
     $Target = Resolve-TargetElement $Wrapper
     if (-not $Target) { return $null }
 
@@ -5237,6 +5765,7 @@ function Get-WrapperSortableScalarValue {
         return $RawDate.ToString()
     }
 
+    Stop-FunctionMeasurement -FunctionName "Get-WrapperSortableScalarValue"
     return $null
 } # function Get-WrapperSortableScalarValue
 
@@ -5247,6 +5776,7 @@ function Get-ArrayItemSortKey {
         [switch]$SortByTitle,
         [switch]$SortByArrayCount
     )
+    Start-FunctionMeasurement -FunctionName "Get-ArrayItemSortKey"
     $TargetItem = Resolve-TargetElement $ItemWrapper
     if (-not $TargetItem) { return $null }
 
@@ -5284,6 +5814,7 @@ function Get-ArrayItemSortKey {
     }
 
     if (-not $CurrentWrapper) { return $null }
+    Stop-FunctionMeasurement -FunctionName "Get-ArrayItemSortKey"
     return (Get-WrapperSortableScalarValue -Wrapper $CurrentWrapper -SortByArrayCount:$SortByArrayCount)
 } # function Get-ArrayItemSortKey
 
@@ -5296,6 +5827,7 @@ function Invoke-ArraySort {
         [switch]$SortByTitle,
         [switch]$SortByArrayCount
     )
+    Start-FunctionMeasurement -FunctionName 'Invoke-ArraySort'
     $TargetSender = Resolve-TargetElement $Sender
     if (-not $TargetSender) { return }
 
@@ -5346,6 +5878,8 @@ function Invoke-ArraySort {
     }
 
     Reset-ArrayIndexes ([ref]$ContentSlot)
+
+    Stop-FunctionMeasurement -FunctionName 'Invoke-ArraySort'
 } # function Invoke-ArraySort
 
 function Add-SortDirectionMenuItems {
@@ -5356,6 +5890,7 @@ function Add-SortDirectionMenuItems {
         [switch]$SortByTitle,
         [switch]$SortByArrayCount
     )
+    Start-FunctionMeasurement -FunctionName "Add-SortDirectionMenuItems"
     $AscItem = New-BaseMenuItem @{
         Header        = $SortAscendingHeader
         Icon          = $SortAscendingIcon
@@ -5386,6 +5921,7 @@ function Add-SortDirectionMenuItems {
 
     $ParentMenuItem.Items.Add($AscItem) | Out-Null
     $ParentMenuItem.Items.Add($DescItem) | Out-Null
+    Stop-FunctionMeasurement -FunctionName "Add-SortDirectionMenuItems"
 } # function Add-SortDirectionMenuItems
 
 function Add-ConstructSortPropertyMenuItems {
@@ -5396,6 +5932,7 @@ function Add-ConstructSortPropertyMenuItems {
         [string[]]$ParentPath = @(),
         [int]$Depth = 0
     )
+    Start-FunctionMeasurement -FunctionName "Add-ConstructSortPropertyMenuItems"
     if ($Depth -gt 3) { return }
     $ResolvedType = if ($ConstructType -is [type]) { $ConstructType } else { $ConstructType -as [type] }
     if (-not $ResolvedType) { return }
@@ -5449,6 +5986,7 @@ function Add-ConstructSortPropertyMenuItems {
             $ParentMenuItem.Items.Add($PropMenuItem) | Out-Null
         }
     }
+    Stop-FunctionMeasurement -FunctionName "Add-ConstructSortPropertyMenuItems"
 } # function Add-ConstructSortPropertyMenuItems
 
 function New-SortMenuItem {
@@ -5456,6 +5994,7 @@ function New-SortMenuItem {
         [string]$ActionFrom = $ContentHeaderBorderName,
         $TargetType = $null
     )
+    Start-FunctionMeasurement -FunctionName 'New-SortMenuItem'
     $SortMenu = New-BaseMenuItem @{
         Name    = "$ActionFrom`_$SortMenuNameSuffix"
         Header  = $SortMenuHeader
@@ -5486,11 +6025,14 @@ function New-SortMenuItem {
         Add-SortDirectionMenuItems -ParentMenuItem $SortMenu -ActionFrom $ActionFrom
     }
 
-    return $SortMenu
+    $ReturnValue = $SortMenu
+    Stop-FunctionMeasurement -FunctionName 'New-SortMenuItem'
+    return $ReturnValue
 } # function New-SortMenuItem
 
 function Get-WrapperTypeClipboardKey {
     param([Parameter(Mandatory)]$Wrapper)
+    Start-FunctionMeasurement -FunctionName "Get-WrapperTypeClipboardKey"
     $Target = Resolve-QuickSetWrapper $Wrapper
     if (-not $Target) { return 'System.Object' }
 
@@ -5514,19 +6056,23 @@ function Get-WrapperTypeClipboardKey {
     if ($IsArray) {
         return "$TypeName`[]"
     }
+    Stop-FunctionMeasurement -FunctionName "Get-WrapperTypeClipboardKey"
     return $TypeName
 } # function Get-WrapperTypeClipboardKey
 
 function Test-HasClipboardForWrapper {
     param([Parameter(Mandatory)]$Wrapper)
+    Start-FunctionMeasurement -FunctionName "Test-HasClipboardForWrapper"
     $Target = Resolve-QuickSetWrapper $Wrapper
     if (-not $Target) { return $false }
     $TypeKey = Get-WrapperTypeClipboardKey -Wrapper $Target
+    Stop-FunctionMeasurement -FunctionName "Test-HasClipboardForWrapper"
     return ($TypeClipboard -is [hashtable] -and $TypeClipboard.ContainsKey($TypeKey))
 } # function Test-HasClipboardForWrapper
 
 function Update-WrapperPasteButtonState {
     param([Parameter(Mandatory)]$Wrapper)
+    Start-FunctionMeasurement -FunctionName 'Update-WrapperPasteButtonState'
     $Target = Resolve-TargetElement $Wrapper
     if (-not $Target) { return }
 
@@ -5536,6 +6082,8 @@ function Update-WrapperPasteButtonState {
     $IsLocked = Get-IsElementLockedSelf $Target
     $HasClipboard = Test-HasClipboardForWrapper -Wrapper $Target
     Set-MenuButtonsEnabledState -Menu $Menu -Suffixes @($PasteButtonNameSuffix) -IsEnabled ($HasClipboard -and (-not $IsLocked))
+
+    Stop-FunctionMeasurement -FunctionName 'Update-WrapperPasteButtonState'
 } # function Update-WrapperPasteButtonState
 
 function Save-WrapperToTypeClipboard {
@@ -5543,6 +6091,7 @@ function Save-WrapperToTypeClipboard {
         [Parameter(Mandatory)]$Wrapper,
         [switch]$ValuesOnly
     )
+    Start-FunctionMeasurement -FunctionName "Save-WrapperToTypeClipboard"
     $Target = Resolve-QuickSetWrapper $Wrapper
     if (-not $Target) { return $null }
 
@@ -5566,11 +6115,13 @@ function Save-WrapperToTypeClipboard {
         }
     }
 
+    Stop-FunctionMeasurement -FunctionName "Save-WrapperToTypeClipboard"
     return $CurrentValue
 } # function Save-WrapperToTypeClipboard
 
 function Convert-QuickSetNodeToCsvRowObject {
     param($Node)
+    Start-FunctionMeasurement -FunctionName "Convert-QuickSetNodeToCsvRowObject"
     $Row = [ordered]@{}
     if ($null -eq $Node) {
         $Row['value'] = ''
@@ -5618,6 +6169,7 @@ function Convert-QuickSetNodeToCsvRowObject {
     }
 
     $Row['value'] = $Node
+    Stop-FunctionMeasurement -FunctionName "Convert-QuickSetNodeToCsvRowObject"
     return [PSCustomObject]$Row
 } # function Convert-QuickSetNodeToCsvRowObject
 
@@ -5626,6 +6178,7 @@ function Convert-WrapperValueToTextFormat {
         $Value,
         [Parameter(Mandatory)][ValidateSet('JSON', 'XML', 'CSV')][string]$Format
     )
+    Start-FunctionMeasurement -FunctionName "Convert-WrapperValueToTextFormat"
     switch ($Format) {
         'JSON' {
             return (ConvertTo-Json -InputObject $Value -Depth 20)
@@ -5661,10 +6214,12 @@ function Convert-WrapperValueToTextFormat {
             return ((@($SingleRow) | ConvertTo-Csv -NoTypeInformation) -join [Environment]::NewLine)
         }
     }
+    Stop-FunctionMeasurement -FunctionName "Convert-WrapperValueToTextFormat"
 } # function Convert-WrapperValueToTextFormat
 
 function Invoke-CopyButtonClick {
     param($s, $e, [string]$ActionFrom)
+    Start-FunctionMeasurement -FunctionName 'Invoke-CopyButtonClick'
     $TargetSender = Resolve-TargetElement $s
     if (-not $TargetSender) { return }
 
@@ -5679,6 +6234,8 @@ function Invoke-CopyButtonClick {
     }
     if (-not $ContentWrapper) { return }
     $null = Save-WrapperToTypeClipboard -Wrapper $ContentWrapper
+
+    Stop-FunctionMeasurement -FunctionName 'Invoke-CopyButtonClick'
 } # function Invoke-CopyButtonClick
 
 function Invoke-CopyAsButtonClick {
@@ -5689,6 +6246,7 @@ function Invoke-CopyAsButtonClick {
         [Parameter(Mandatory)][ValidateSet('JSON', 'XML', 'CSV')][string]$Format,
         [switch]$ValuesOnly
     )
+    Start-FunctionMeasurement -FunctionName 'Invoke-CopyAsButtonClick'
     $TargetSender = Resolve-TargetElement $s
     if (-not $TargetSender) { return }
 
@@ -5702,6 +6260,8 @@ function Invoke-CopyAsButtonClick {
     $FormattedText = Convert-WrapperValueToTextFormat -Value $CapturedValue -Format $Format
     if ($null -eq $FormattedText) { $FormattedText = '' }
     [System.Windows.Clipboard]::SetText([string]$FormattedText)
+
+    Stop-FunctionMeasurement -FunctionName 'Invoke-CopyAsButtonClick'
 } # function Invoke-CopyAsButtonClick
 
 function Invoke-PasteButtonClick {
@@ -5711,6 +6271,7 @@ function Invoke-PasteButtonClick {
         [string]$ActionFrom,
         [switch]$ValuesOnly
     )
+    Start-FunctionMeasurement -FunctionName 'Invoke-PasteButtonClick'
     $TargetSender = Resolve-TargetElement $s
     if (-not $TargetSender) { return }
 
@@ -5736,15 +6297,19 @@ function Invoke-PasteButtonClick {
 
     $ClonedValue = if ([string]::IsNullOrEmpty($JsonSnapshot)) { $null } else { ConvertFrom-Json -InputObject $JsonSnapshot }
     Set-WrapperQuickSetValue -Wrapper $ContentWrapper -Value $ClonedValue -ValuesOnly:$EffectiveValuesOnly
+
+    Stop-FunctionMeasurement -FunctionName 'Invoke-PasteButtonClick'
 } # function Invoke-PasteButtonClick
 
 function Get-PasteButtonToolTip {
     param([Parameter(Mandatory)]$Button)
+    Start-FunctionMeasurement -FunctionName "Get-PasteButtonToolTip"
     if ($Button.IsEnabled) { return $PasteButtonToolTip }
     $ParentBorder = Get-ParentWrapperBorder -Element $Button
     if ($ParentBorder -and (Get-IsElementLockedSelf $ParentBorder)) {
         return "$PasteButtonToolTip`n$LockedButtonToolTip"
     }
+    Stop-FunctionMeasurement -FunctionName "Get-PasteButtonToolTip"
     return "$PasteButtonToolTip`n$EmptyClipboardButtonToolTip"
 } # function Get-PasteButtonToolTip
 
@@ -5754,6 +6319,7 @@ function Add-CopyScopeMenuItems {
         [Parameter(Mandatory)][string]$ActionFrom,
         [string]$Format = $null
     )
+    Start-FunctionMeasurement -FunctionName "Add-CopyScopeMenuItems"
     $FullItem = New-BaseMenuItem @{
         Header        = $CopyFullItemHeader
         Icon          = $CopyFullItemIcon
@@ -5792,10 +6358,12 @@ function Add-CopyScopeMenuItems {
 
     $ParentMenuItem.Items.Add($FullItem) | Out-Null
     $ParentMenuItem.Items.Add($ValuesItem) | Out-Null
+    Stop-FunctionMeasurement -FunctionName "Add-CopyScopeMenuItems"
 } # function Add-CopyScopeMenuItems
 
 function New-CopyButton {
     param([string]$ActionFrom = $ContentHeaderBorderName)
+    Start-FunctionMeasurement -FunctionName 'New-CopyButton'
     $CopyButton = New-BaseMenuItem @{
         Name    = "$ActionFrom`_$CopyButtonNameSuffix"
         Header  = $CopyButtonHeader
@@ -5804,11 +6372,14 @@ function New-CopyButton {
     }
     $CopyButton.Add_Click({ param($s, $e) Invoke-CopyButtonClick $s $e })
     Add-LockableButtonToolTip -Button $CopyButton -ToolTip $CopyButtonToolTip
-    return $CopyButton
+    $ReturnValue = $CopyButton
+    Stop-FunctionMeasurement -FunctionName 'New-CopyButton'
+    return $ReturnValue
 } # function New-CopyButton
 
 function New-CopyAsMenuItem {
     param([string]$ActionFrom = $ContentHeaderBorderName)
+    Start-FunctionMeasurement -FunctionName 'New-CopyAsMenuItem'
     $CopyAsMenu = New-BaseMenuItem @{
         Name    = "$ActionFrom`_$CopyAsMenuNameSuffix"
         Header  = $CopyAsMenuHeader
@@ -5817,29 +6388,45 @@ function New-CopyAsMenuItem {
     }
     Add-LockableButtonToolTip -Button $CopyAsMenu -ToolTip $CopyAsMenuToolTip
 
-    $Formats = @(
-        @{ Format = 'JSON'; NameSuffix = $CopyAsJsonButtonNameSuffix; Header = $CopyAsJsonHeader; Icon = $CopyAsJsonIcon; ToolTip = $CopyAsJsonToolTip },
-        @{ Format = 'XML'; NameSuffix = $CopyAsXmlButtonNameSuffix; Header = $CopyAsXmlHeader; Icon = $CopyAsXmlIcon; ToolTip = $CopyAsXmlToolTip },
-        @{ Format = 'CSV'; NameSuffix = $CopyAsCsvButtonNameSuffix; Header = $CopyAsCsvHeader; Icon = $CopyAsCsvIcon; ToolTip = $CopyAsCsvToolTip }
-    )
+    # Placeholder child to enable WPF submenu expansion arrow
+    $DummyItem = New-BaseMenuItem @{ Header = 'Loading...' }
+    $CopyAsMenu.Items.Add($DummyItem) | Out-Null
 
-    foreach ($Fmt in $Formats) {
-        $FmtItem = New-BaseMenuItem @{
-            Name          = "$ActionFrom`_$($Fmt.NameSuffix)"
-            Header        = $Fmt.Header
-            Icon          = $Fmt.Icon
-            ToolTip       = $Fmt.ToolTip
-            FlowDirection = 'LeftToRight'
+    $PopulatedState = @{ IsPopulated = $false }
+    $CopyAsMenu.Add_SubmenuOpened(({
+        param($s, $e)
+        if ($e.Source -ne $s) { return }
+        if ($PopulatedState.IsPopulated) { return }
+        $PopulatedState.IsPopulated = $true
+        $s.Items.Clear()
+
+        $Formats = @(
+            @{ Format = 'JSON'; NameSuffix = $CopyAsJsonButtonNameSuffix; Header = $CopyAsJsonHeader; Icon = $CopyAsJsonIcon; ToolTip = $CopyAsJsonToolTip },
+            @{ Format = 'XML'; NameSuffix = $CopyAsXmlButtonNameSuffix; Header = $CopyAsXmlHeader; Icon = $CopyAsXmlIcon; ToolTip = $CopyAsXmlToolTip },
+            @{ Format = 'CSV'; NameSuffix = $CopyAsCsvButtonNameSuffix; Header = $CopyAsCsvHeader; Icon = $CopyAsCsvIcon; ToolTip = $CopyAsCsvToolTip }
+        )
+
+        foreach ($Fmt in $Formats) {
+            $FmtItem = New-BaseMenuItem @{
+                Name          = "$ActionFrom`_$($Fmt.NameSuffix)"
+                Header        = $Fmt.Header
+                Icon          = $Fmt.Icon
+                ToolTip       = $Fmt.ToolTip
+                FlowDirection = 'LeftToRight'
+            }
+            Add-CopyScopeMenuItems -ParentMenuItem $FmtItem -ActionFrom $ActionFrom -Format $Fmt.Format
+            $s.Items.Add($FmtItem) | Out-Null
         }
-        Add-CopyScopeMenuItems -ParentMenuItem $FmtItem -ActionFrom $ActionFrom -Format $Fmt.Format
-        $CopyAsMenu.Items.Add($FmtItem) | Out-Null
-    }
+    }).GetNewClosure())
 
-    return $CopyAsMenu
+    $ReturnValue = $CopyAsMenu
+    Stop-FunctionMeasurement -FunctionName 'New-CopyAsMenuItem'
+    return $ReturnValue
 } # function New-CopyAsMenuItem
 
 function New-PasteButton {
     param([string]$ActionFrom = $ContentHeaderBorderName)
+    Start-FunctionMeasurement -FunctionName 'New-PasteButton'
     $PasteButton = New-BaseMenuItem @{
         Name      = "$ActionFrom`_$PasteButtonNameSuffix"
         Header    = $PasteButtonHeader
@@ -5879,7 +6466,9 @@ function New-PasteButton {
     $PasteButton.Items.Add($FullItem) | Out-Null
     $PasteButton.Items.Add($ValuesItem) | Out-Null
 
-    return $PasteButton
+    $ReturnValue = $PasteButton
+    Stop-FunctionMeasurement -FunctionName 'New-PasteButton'
+    return $ReturnValue
 } # function New-PasteButton
 
 function Get-StandardActionButtons {
@@ -5892,6 +6481,7 @@ function Get-StandardActionButtons {
         [switch]$IncludeArrayItemActions,
         $TargetType = $null
     )
+    Start-FunctionMeasurement -FunctionName "Get-StandardActionButtons"
 
     $Buttons = [System.Collections.ArrayList]@()
     [void]$Buttons.Add((New-QuickSetMenuItem -ActionFrom $ActionFrom -IsConstruct $IsConstruct))
@@ -5927,8 +6517,110 @@ function Get-StandardActionButtons {
         }
     }
 
+    Stop-FunctionMeasurement -FunctionName "Get-StandardActionButtons"
     return @($Buttons)
 } # function Get-StandardActionButtons
+
+function Set-WrapperActionButtonsLazy {
+    param(
+        [Parameter(Mandatory = $true)][ref]$Wrapper,
+        [Parameter(Mandatory = $true)][string]$ActionFrom,
+        [switch]$IsBatch,
+        [switch]$IsConstruct,
+        [switch]$IncludeSearch,
+        [switch]$IncludeArrayItemActions,
+        $TargetType = $null
+    )
+    Start-FunctionMeasurement -FunctionName "Set-WrapperActionButtonsLazy"
+    $TargetElement = Resolve-TargetElement $Wrapper.Value
+    if (-not $TargetElement) {
+        Stop-FunctionMeasurement -FunctionName "Set-WrapperActionButtonsLazy"
+        return
+    }
+
+    $Menu = Get-WrapperMenu -Wrapper $TargetElement
+    if (-not $Menu) {
+        Stop-FunctionMeasurement -FunctionName "Set-WrapperActionButtonsLazy"
+        return
+    }
+
+    $ButtonMenu = Find-ObjectWhere -Object ([ref]$Menu) -FindWhere { $_.Name -eq $ButtonMenuName } -FindMax 1
+    if (-not $ButtonMenu) {
+        Stop-FunctionMeasurement -FunctionName "Set-WrapperActionButtonsLazy"
+        return
+    }
+
+    if (-not ($ButtonMenu.Tag -is [hashtable])) { $ButtonMenu.Tag = @{} }
+    $ButtonMenu.Tag.ActionButtonsConfiguration = @{
+        ActionFrom              = $ActionFrom
+        IsBatch                 = [bool]$IsBatch
+        IsConstruct             = [bool]$IsConstruct
+        IncludeSearch           = [bool]$IncludeSearch
+        IncludeArrayItemActions = [bool]$IncludeArrayItemActions
+        TargetType              = $TargetType
+    }
+    $ButtonMenu.Tag.ActionButtonsPopulated = $false
+    $ButtonMenu.Visibility = 'Visible'
+
+    Stop-FunctionMeasurement -FunctionName "Set-WrapperActionButtonsLazy"
+} # function Set-WrapperActionButtonsLazy
+
+function Ensure-WrapperActionButtons {
+    param(
+        [Parameter(Mandatory = $true)]$Element
+    )
+    Start-FunctionMeasurement -FunctionName "Ensure-WrapperActionButtons"
+    $TargetElement = Resolve-TargetElement $Element
+    if (-not $TargetElement) {
+        Stop-FunctionMeasurement -FunctionName "Ensure-WrapperActionButtons"
+        return
+    }
+
+    $Wrapper = if ($TargetElement.Name -eq $ContentHeaderBorderName -or $TargetElement.Name -eq $ContentBorderName) {
+        $TargetElement
+    }
+    else {
+        $Parent = Get-ParentWrapperBorder -Element $TargetElement
+        if ($Parent) { $Parent } else { $TargetElement }
+    }
+
+    $Menu = Get-WrapperMenu -Wrapper $Wrapper
+    if (-not $Menu) {
+        Stop-FunctionMeasurement -FunctionName "Ensure-WrapperActionButtons"
+        return
+    }
+
+    $ButtonMenu = Find-ObjectWhere -Object ([ref]$Menu) -FindWhere { $_.Name -eq $ButtonMenuName } -FindMax 1
+    if (-not $ButtonMenu) {
+        Stop-FunctionMeasurement -FunctionName "Ensure-WrapperActionButtons"
+        return
+    }
+
+    if ($ButtonMenu.Tag -is [hashtable] -and $ButtonMenu.Tag.ActionButtonsPopulated) {
+        Stop-FunctionMeasurement -FunctionName "Ensure-WrapperActionButtons"
+        return
+    }
+
+    if ($ButtonMenu.Tag -is [hashtable] -and $ButtonMenu.Tag.ActionButtonsConfiguration) {
+        $Configuration = $ButtonMenu.Tag.ActionButtonsConfiguration
+        $Buttons = Get-StandardActionButtons `
+            -ActionFrom $Configuration.ActionFrom `
+            -IsBatch:$Configuration.IsBatch `
+            -IsConstruct:$Configuration.IsConstruct `
+            -IncludeSearch:$Configuration.IncludeSearch `
+            -IncludeArrayItemActions:$Configuration.IncludeArrayItemActions `
+            -TargetType $Configuration.TargetType
+
+        Add-ChildrenToItemsButtonMenu ([ref]$Wrapper) $Buttons
+        $ButtonMenu.Tag.ActionButtonsPopulated = $true
+
+        if ($Configuration.IsBatch) {
+            Update-ArrayButtonsState -Wrapper $Wrapper
+        }
+    }
+
+    Stop-FunctionMeasurement -FunctionName "Ensure-WrapperActionButtons"
+} # function Ensure-WrapperActionButtons
 
 function New-ClearButton {
     param(
@@ -5936,6 +6628,7 @@ function New-ClearButton {
         [string]$ToolTip = $ClearButtonToolTip,
         [string]$ActionFrom = $ContentHeaderBorderName
     )
+    Start-FunctionMeasurement -FunctionName 'New-ClearButton'
 
     $ClearButton = New-BaseMenuItem @{
         Name    = "$ActionFrom`_$ClearButtonNameSuffix"
@@ -5945,7 +6638,9 @@ function New-ClearButton {
     }
     $ClearButton.Add_Click({ param($s, $e) Invoke-ClearButtonClick $s $e })
     Add-LockableButtonToolTip -Button $ClearButton -ToolTip $ToolTip
-    return $ClearButton
+    $ReturnValue = $ClearButton
+    Stop-FunctionMeasurement -FunctionName 'New-ClearButton'
+    return $ReturnValue
 } # function New-ClearButton
 
 function New-RandomValuesButton {
@@ -5954,6 +6649,7 @@ function New-RandomValuesButton {
         [string]$ToolTip = $RandomValuesButtonToolTip,
         [string]$ActionFrom = $ContentHeaderBorderName
     )
+    Start-FunctionMeasurement -FunctionName 'New-RandomValuesButton'
 
     $RandomValuesButton = New-BaseMenuItem @{
         Name    = "$ActionFrom`_$RandomValuesButtonNameSuffix"
@@ -5963,7 +6659,9 @@ function New-RandomValuesButton {
     }
     $RandomValuesButton.Add_Click({ param($s, $e) Invoke-RandomValuesButtonClick $s $e })
     Add-LockableButtonToolTip -Button $RandomValuesButton -ToolTip $ToolTip
-    return $RandomValuesButton
+    $ReturnValue = $RandomValuesButton
+    Stop-FunctionMeasurement -FunctionName 'New-RandomValuesButton'
+    return $ReturnValue
 } # function New-RandomValuesButton
 
 function New-DisableEnableButton {
@@ -5971,6 +6669,7 @@ function New-DisableEnableButton {
         [string]$Header = $DisableEnableButtonHeaderEnabled,
         [string]$ActionFrom = $ContentHeaderBorderName
     )
+    Start-FunctionMeasurement -FunctionName 'New-DisableEnableButton'
 
     $DisableEnableButton = New-BaseMenuItem @{
         Name   = "$ActionFrom`_$DisableEnableButtonNameSuffix"
@@ -5987,7 +6686,9 @@ function New-DisableEnableButton {
             $s.ToolTip = Get-LockableToolTip -Button $s -ToolTip (Get-DisableEnableButtonToolTip -Button $s)
         })
 
-    return $DisableEnableButton
+    $ReturnValue = $DisableEnableButton
+    Stop-FunctionMeasurement -FunctionName 'New-DisableEnableButton'
+    return $ReturnValue
 } # function New-DisableEnableButton
 
 function New-DeleteButton {
@@ -5996,6 +6697,7 @@ function New-DeleteButton {
         [string]$ToolTip = $DeleteButtonToolTip,
         [string]$ActionFrom = $ContentHeaderBorderName
     )
+    Start-FunctionMeasurement -FunctionName 'New-DeleteButton'
 
     $DeleteButton = New-BaseMenuItem @{
         Name    = "$ActionFrom`_$DeleteButtonNameSuffix"
@@ -6007,7 +6709,9 @@ function New-DeleteButton {
     $DeleteButton.Add_Click({ param($s, $e) Invoke-DeleteButtonClick $s $e })
     Add-LockableButtonToolTip -Button $DeleteButton -ToolTip $ToolTip
 
-    return $DeleteButton
+    $ReturnValue = $DeleteButton
+    Stop-FunctionMeasurement -FunctionName 'New-DeleteButton'
+    return $ReturnValue
 } # function New-DeleteButton
 
 function New-SearchButton {
@@ -6017,6 +6721,7 @@ function New-SearchButton {
         [string]$ActionFrom = $ContentHeaderBorderName,
         [bool]$IsEnabled = $true
     )
+    Start-FunctionMeasurement -FunctionName 'New-SearchButton'
 
     $SearchButton = New-BaseMenuItem @{
         Name      = "$ActionFrom`_$SearchButtonNameSuffix"
@@ -6033,11 +6738,14 @@ function New-SearchButton {
             $s.ToolTip = Get-SearchButtonToolTip -Button $s
         })
 
-    return $SearchButton
+    $ReturnValue = $SearchButton
+    Stop-FunctionMeasurement -FunctionName 'New-SearchButton'
+    return $ReturnValue
 } # function New-SearchButton
 
 function New-LockButton {
     param($ActionFrom)
+    Start-FunctionMeasurement -FunctionName 'New-LockButton'
 
     $LockUnlockButton = New-BaseMenuItem @{
         Name    = $LockUnlockButtonName
@@ -6053,7 +6761,9 @@ function New-LockButton {
             $s.ToolTip = Get-LockUnlockButtonToolTip -Button $s
         })
 
-    return $LockUnlockButton
+    $ReturnValue = $LockUnlockButton
+    Stop-FunctionMeasurement -FunctionName 'New-LockButton'
+    return $ReturnValue
 } # function New-LockButton
 
 function Add-LockableButtonToolTip {
@@ -6061,12 +6771,14 @@ function Add-LockableButtonToolTip {
         [Parameter(Mandatory)]$Button,
         [Parameter(Mandatory)][string]$ToolTip
     )
+    Start-FunctionMeasurement -FunctionName "Add-LockableButtonToolTip"
     [System.Windows.Controls.ToolTipService]::SetShowOnDisabled($Button, $true)
     $BaseToolTip = $ToolTip
     $Button.Add_ToolTipOpening(({
                 param($s, $e)
                 $s.ToolTip = Get-LockableToolTip -Button $s -ToolTip $BaseToolTip
             }).GetNewClosure())
+    Stop-FunctionMeasurement -FunctionName "Add-LockableButtonToolTip"
 } # function Add-LockableButtonToolTip
 
 function Get-LockableToolTip {
@@ -6074,6 +6786,7 @@ function Get-LockableToolTip {
         [Parameter(Mandatory)]$Button,
         [string]$ToolTip
     )
+    Start-FunctionMeasurement -FunctionName "Get-LockableToolTip"
     if ($Button.IsEnabled) { return $ToolTip }
     if ($Button.Name -like "*$ConstructButtonNameSuffix") {
         return "$ToolTip`n$EmptyArrayButtonToolTip"
@@ -6091,11 +6804,13 @@ function Get-LockableToolTip {
             return "$ToolTip`n$SortMinItemsButtonToolTip"
         }
     }
+    Stop-FunctionMeasurement -FunctionName "Get-LockableToolTip"
     return "$ToolTip`n$LockedButtonToolTip"
 } # function Get-LockableToolTip
 
 function Get-DisableEnableButtonToolTip {
     param([Parameter(Mandatory)]$Button)
+    Start-FunctionMeasurement -FunctionName "Get-DisableEnableButtonToolTip"
     $IsAll = $Button.Header -like '* All' -or ($Button.Tag -is [hashtable] -and $Button.Tag.IsAll)
     $IsDisabled = $Button.Icon -eq $DisableEnableButtonIconDisabled
     if ($IsAll) {
@@ -6103,11 +6818,13 @@ function Get-DisableEnableButtonToolTip {
         return $DisableEnableButtonAllToolTipEnabled
     }
     if ($IsDisabled) { return $DisableEnableButtonToolTipDisabled }
+    Stop-FunctionMeasurement -FunctionName "Get-DisableEnableButtonToolTip"
     return $DisableEnableButtonToolTipEnabled
 } # function Get-DisableEnableButtonToolTip
 
 function Get-LockUnlockButtonToolTip {
     param([Parameter(Mandatory)]$Button)
+    Start-FunctionMeasurement -FunctionName "Get-LockUnlockButtonToolTip"
     $ParentBorder = Get-ParentWrapperBorder -Element $Button
     $IsArrayWrapper = ($ParentBorder -and $ParentBorder.Tag -is [hashtable] -and $ParentBorder.Tag.IsArray)
     $IsArrayItemWrapper = ($ParentBorder -and (Get-IsArrayItem -Wrapper $ParentBorder))
@@ -6118,13 +6835,16 @@ function Get-LockUnlockButtonToolTip {
     }
     if ($IsArrayWrapper) { return $LockUnlockButtonAllToolTipUnlocked }
     if ($IsArrayItemWrapper) { return $LockUnlockButtonItemToolTipUnlocked }
+    Stop-FunctionMeasurement -FunctionName "Get-LockUnlockButtonToolTip"
     return $LockUnlockButtonToolTipUnlocked
 } # function Get-LockUnlockButtonToolTip
 
 function Get-SearchButtonToolTip {
     param([Parameter(Mandatory)]$Button)
+    Start-FunctionMeasurement -FunctionName "Get-SearchButtonToolTip"
     if (-not $Button.IsEnabled) { return "$SearchButtonToolTip`n$EmptyArrayButtonToolTip" }
     if ($null -eq $Button.Icon) { return $SearchButtonToolTipActive }
+    Stop-FunctionMeasurement -FunctionName "Get-SearchButtonToolTip"
     return $SearchButtonToolTip
 } # function Get-SearchButtonToolTip
 
@@ -6134,6 +6854,7 @@ function Set-MenuButtonsEnabledState {
         [Parameter(Mandatory = $true)][string[]]$Suffixes,
         [Parameter(Mandatory = $true)][bool]$IsEnabled
     )
+    Start-FunctionMeasurement -FunctionName 'Set-MenuButtonsEnabledState'
     $TargetMenu = Resolve-TargetElement $Menu
     if (-not $TargetMenu) { return }
 
@@ -6143,6 +6864,8 @@ function Set-MenuButtonsEnabledState {
             if ($Button) { $Button.IsEnabled = $IsEnabled }
         }
     }
+
+    Stop-FunctionMeasurement -FunctionName 'Set-MenuButtonsEnabledState'
 } # function Set-MenuButtonsEnabledState
 
 function Set-LockableButtonsState {
@@ -6150,6 +6873,7 @@ function Set-LockableButtonsState {
         [Parameter(Mandatory)]$LockButton,
         [Parameter(Mandatory)][bool]$IsEnabled
     )
+    Start-FunctionMeasurement -FunctionName 'Set-LockableButtonsState'
     # Only search this item's own menu, so nested child items keep their own state
     $Menu = Find-ObjectWhere -Object ([ref]$LockButton) -FindWhere { $_.Name -eq $MenuName } -DigProperties 'Parent' -FindMax 1
     if (-not $Menu) { return }
@@ -6173,6 +6897,8 @@ function Set-LockableButtonsState {
     if ($ParentBorder) {
         Update-WrapperPasteButtonState -Wrapper $ParentBorder
     }
+
+    Stop-FunctionMeasurement -FunctionName 'Set-LockableButtonsState'
 } # function Set-LockableButtonsState
 
 function Test-AncestorBorderButtonState {
@@ -6181,6 +6907,7 @@ function Test-AncestorBorderButtonState {
         [Parameter(Mandatory)][scriptblock]$ButtonSelector,
         [Parameter(Mandatory)][scriptblock]$ValueCondition
     )
+    Start-FunctionMeasurement -FunctionName "Test-AncestorBorderButtonState"
     $Target = Resolve-TargetElement $Object
     if (-not $Target) { return $false }
 
@@ -6203,21 +6930,26 @@ function Test-AncestorBorderButtonState {
         }
     }
 
+    Stop-FunctionMeasurement -FunctionName "Test-AncestorBorderButtonState"
     return $false
 } # function Test-AncestorBorderButtonState
 
 function Get-IsLocked {
     param($Object)
+    Start-FunctionMeasurement -FunctionName "Get-IsLocked"
     return Test-AncestorBorderButtonState -Object $Object `
         -ButtonSelector { param($Border) Find-ObjectWhere -Object ([ref]$Border) -FindWhere { $_.Name -eq $LockUnlockButtonName } -FindMax 1 } `
         -ValueCondition { param($Value) $Value -eq $LockUnlockButtonHeaderLocked }
+    Stop-FunctionMeasurement -FunctionName "Get-IsLocked"
 } # function Get-IsLocked
 
 function Get-IsDisabled {
     param($Object)
+    Start-FunctionMeasurement -FunctionName "Get-IsDisabled"
     return Test-AncestorBorderButtonState -Object $Object `
         -ButtonSelector { param($Border) Find-ObjectWhere -Object ([ref]$Border) -FindWhere { $_.Name -like "*$DisableEnableButtonNameSuffix" } -FindMax 1 } `
         -ValueCondition { param($Value) $Value -like "$DisableEnableButtonHeaderDisabled*" }
+    Stop-FunctionMeasurement -FunctionName "Get-IsDisabled"
 } # function Get-IsDisabled
 
 function Get-WrapperOwnActionButton {
@@ -6229,8 +6961,10 @@ function Get-WrapperOwnActionButton {
         [string]$Name,
         [string]$Suffix
     )
+    Start-FunctionMeasurement -FunctionName "Get-WrapperOwnActionButton"
     $TargetElem = Resolve-TargetElement $Element
     if (-not $TargetElem) { return $null }
+    Ensure-WrapperActionButtons -Element $TargetElem
     $SearchRoot = Get-WrapperMenu -Wrapper $TargetElem
     if (-not $SearchRoot) { $SearchRoot = $TargetElem }
     if (-not [string]::IsNullOrWhiteSpace($Name)) {
@@ -6245,24 +6979,29 @@ function Get-WrapperOwnActionButton {
     else {
         $Found = Find-ObjectWhere -Object ([ref]$SearchRoot) -FindWhere { $_.Name -eq $LockUnlockButtonName } -FindMax 1
     }
+    Stop-FunctionMeasurement -FunctionName "Get-WrapperOwnActionButton"
     return (Resolve-TargetElement $Found)
 } # function Get-WrapperOwnActionButton
 
 function Get-IsElementLockedSelf {
     param($Element)
+    Start-FunctionMeasurement -FunctionName "Get-IsElementLockedSelf"
     $LockButton = Get-WrapperOwnActionButton -Element $Element
     if ($LockButton) {
         return ($LockButton.Icon -eq $LockUnlockButtonIconLocked)
     }
+    Stop-FunctionMeasurement -FunctionName "Get-IsElementLockedSelf"
     return $false
 } # function Get-IsElementLockedSelf
 
 function Get-IsElementDisabledSelf {
     param($Element)
+    Start-FunctionMeasurement -FunctionName "Get-IsElementDisabledSelf"
     $DisableButton = Get-WrapperOwnActionButton -Element $Element -IsDisableButton
     if ($DisableButton) {
         return ($DisableButton.Icon -eq $DisableEnableButtonIconDisabled)
     }
+    Stop-FunctionMeasurement -FunctionName "Get-IsElementDisabledSelf"
     return $false
 } # function Get-IsElementDisabledSelf
 
@@ -6271,6 +7010,7 @@ function Set-TargetLockedState {
         $Target,
         [bool]$IsLocked
     )
+    Start-FunctionMeasurement -FunctionName 'Set-TargetLockedState'
     $LockButton = Get-WrapperOwnActionButton -Element $Target
     if (-not $LockButton) { return }
 
@@ -6278,10 +7018,13 @@ function Set-TargetLockedState {
     if ($CurrentlyLocked -ne $IsLocked) {
         Invoke-LockUnlockButtonClick $LockButton $null
     }
+
+    Stop-FunctionMeasurement -FunctionName 'Set-TargetLockedState'
 } # function Set-TargetLockedState
 
 function Get-WrapperMinMaxState {
     param($Element)
+    Start-FunctionMeasurement -FunctionName "Get-WrapperMinMaxState"
     $TargetElem = Resolve-TargetElement $Element
     if (-not $TargetElem -or $TargetElem.Name -ne $ContentHeaderBorderName) { return $null }
     $MinMaxButton = Get-WrapperOwnActionButton -Element $TargetElem -Name $MinMaxButtonName
@@ -6290,6 +7033,7 @@ function Get-WrapperMinMaxState {
     if ($ContentSlot) {
         return ($ContentSlot.Visibility -eq 'Collapsed')
     }
+    Stop-FunctionMeasurement -FunctionName "Get-WrapperMinMaxState"
     return ($MinMaxButton.Header -eq $MinMaxButtonMaxedIcon)
 } # function Get-WrapperMinMaxState
 
@@ -6298,6 +7042,7 @@ function Set-TargetMinMaxState {
         $Target,
         [bool]$IsMinimized
     )
+    Start-FunctionMeasurement -FunctionName 'Set-TargetMinMaxState'
     $TargetElem = Resolve-TargetElement $Target
     if (-not $TargetElem -or $TargetElem.Name -ne $ContentHeaderBorderName) { return }
     $MinMaxButton = Get-WrapperOwnActionButton -Element $TargetElem -Name $MinMaxButtonName
@@ -6305,6 +7050,8 @@ function Set-TargetMinMaxState {
     if (-not $MinMaxButton -or -not $ContentSlot) { return }
 
     Set-ContentSlotCollapseState -ContentSlotElement $ContentSlot -MinMaxButton $MinMaxButton -ContentHeaderBorder $TargetElem -Collapse $IsMinimized
+
+    Stop-FunctionMeasurement -FunctionName 'Set-TargetMinMaxState'
 } # function Set-TargetMinMaxState
 
 function Set-TargetDisabledState {
@@ -6312,6 +7059,7 @@ function Set-TargetDisabledState {
         $Target,
         [bool]$IsDisabled
     )
+    Start-FunctionMeasurement -FunctionName 'Set-TargetDisabledState'
     $DisableButton = Get-WrapperOwnActionButton -Element $Target -IsDisableButton
     if (-not $DisableButton) { return }
 
@@ -6319,6 +7067,8 @@ function Set-TargetDisabledState {
     if ($CurrentlyDisabled -ne $IsDisabled) {
         Invoke-DisableEnableButtonClick $DisableButton $null
     }
+
+    Stop-FunctionMeasurement -FunctionName 'Set-TargetDisabledState'
 } # function Set-TargetDisabledState
 
 #endregion #3 Button Elements
@@ -6333,10 +7083,19 @@ function Set-TargetDisabledState {
 #region #0 Functions
 
 function Get-TypeConstructors {
-    param([type]$Type)
+    param($Type)
+    Start-FunctionMeasurement -FunctionName "Get-TypeConstructors"
+    if (-not $Type) { return $null }
+    $ResolvedType = if ($Type -is [type]) { $Type } else { try { [type]$Type } catch { return $null } }
+    if (-not $ResolvedType) { return $null }
+    $TypeName = $ResolvedType.FullName
+    if ($script:TypeConstructorsCache.ContainsKey($TypeName)) {
+        return $script:TypeConstructorsCache[$TypeName]
+    }
     $i = 0
     try {
-        $Constructors = $Type.GetConstructors()
+        $Constructors = $ResolvedType.GetConstructors()
+        $Results = [System.Collections.ArrayList]@()
     }
     catch {
         Write-Host "{Get-TypeConstructors} Error: $_"
@@ -6346,17 +7105,20 @@ function Get-TypeConstructors {
         $i ++
         $Parameters = $Constructor.GetParameters()
         :Parameters foreach ($Parameter in $Parameters) {
-            [PSCustomObject]@{
+            [void]$Results.Add([PSCustomObject]@{
                 Constructor  = $i
                 Name         = $Parameter.Name
                 Type         = $Parameter.ParameterType.FullName
                 DefaultValue = $Parameter.DefaultValue
-            }
+            })
             if ($Parameter.HasDefaultValue) {
                 Write-Host "HasDefaultValue: $($Parameter.DefaultValue)" -ForegroundColor Yellow
             }
         } # Parameters
     } # Constructors
+    $script:TypeConstructorsCache[$TypeName] = @($Results)
+    Stop-FunctionMeasurement -FunctionName "Get-TypeConstructors"
+    return @($Results)
 } # function Get-TypeConstructors
 
 #endregion #0 Functions
@@ -6419,6 +7181,18 @@ $BaseWindow.Add_KeyDown({
                 $TargetButton.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.MenuItem]::ClickEvent)))
                 $e.Handled = $true
             }
+        }
+        if ($e.Key -eq 'P' -and [System.Windows.Input.Keyboard]::Modifiers -match 'Control' -and [System.Windows.Input.Keyboard]::Modifiers -match 'Shift') {
+            Write-Host "`n============================================================" -ForegroundColor Cyan
+            Write-Host "Function Measurement Summary" -ForegroundColor Cyan
+            Write-Host "============================================================" -ForegroundColor Cyan
+            $SummaryData = Get-FunctionMeasurementSummary
+            $SummaryData | Format-Table -AutoSize | Out-String | Write-Host -ForegroundColor Yellow
+            Write-Host "============================================================`n" -ForegroundColor Cyan
+            if ($SummaryData) {
+                $SummaryData | Out-GridView -Title 'Function Measurement Summary'
+            }
+            $e.Handled = $true
         }
     })
 
