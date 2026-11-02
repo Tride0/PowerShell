@@ -1,15 +1,12 @@
-<# PoshToUI
+﻿<# PoshToUI
     Project:
         - Dynamic PowerShell Object Viewer
         - UI is created using PowerShell
         - No hardcoded UI
         - No Abbrevations
+        - Tag property should be used to store information that is used often or later.
 
     To Do
-        2. Performance Measuring and Improving
-        3. Arrays - In an Array, when an add or delete update the Description. In between '[]' put the current count of items. For example: [EnabledCount/TotalCount]
-        4. QuickSet - Closing Window prompts if we want to Save if changes are made 
-        5. Random Values - Customize how they generate.
         6. Array - AsBlock (Delimiter*) - * Default is Comma; NewLine is always an additional delimiter (NewLine explanation in ToolTip); When AsBlock is clicked it changes to 'Default' and vice versa
         7. Dropdown - Sort, Search, Filter
         8. Construct Button - Indicators
@@ -38,6 +35,8 @@ Clear-Host
 
 [string]$SettingsRoot = "$env:APPDATA\PoshToUI"
 [string]$QuickSetRootPath = "$SettingsRoot\QuickSet"
+[string]$RandomValuesConfigurationFilePath = "$SettingsRoot\RandomValuesConfiguration.json"
+$script:GlobalRandomValuesConfiguration = $null
 
 [string[]]$PasswordFields = @(
     'password'
@@ -88,11 +87,16 @@ $ConstructName = 'Construct'
 
 $MenuName = 'Menu'
 $ButtonMenuName = 'ButtonMenu'
+$UniversalMenuTriggerButtonName = 'UniversalMenuTriggerButton'
+$UniversalMenuLockIndicatorButtonName = 'UniversalMenuLockIndicatorButton'
+$UniversalMenuDisableIndicatorButtonName = 'UniversalMenuDisableIndicatorButton'
+$script:UniversalSharedMenu = $null
 
 $MinMaxButtonName = 'MinMaxButton'
 $AddArrayItemButtonName = 'AddArrayItemButton'
 
 $RandomValuesButtonNameSuffix = 'RandomValuesButton'
+$RandomValuesSettingsButtonNameSuffix = 'RandomValuesSettingsButton'
 $SortMenuNameSuffix = 'SortMenu'
 $DragHandleNameSuffix = 'DragHandle'
 $LockUnlockButtonName = 'LockUnlockButton'
@@ -150,6 +154,8 @@ $RandomValuesButtonHeader = 'Random Value'
 $RandomValuesButtonIcon = '🎲'
 $RandomValuesButtonToolTip = "Fill this value with a random value"
 $RandomValuesButtonAllToolTip = "Fill every item in this array with random values"
+$RandomValuesSettingsButtonIcon = '⚙'
+$RandomValuesSettingsButtonToolTip = "Customize random value generation"
 $SortMenuHeader = 'Sort'
 $SortMenuIcon = '⇅'
 $SortMenuToolTip = "Sort the items in this array"
@@ -222,6 +228,7 @@ $PasteButtonToolTip = "Paste the copied value for this type"
 $PasteFullItemToolTip = "Paste values, title, and UI states (minimized, locked, disabled)"
 $PasteValuesOnlyToolTip = "Paste only the field values and preserve existing UI states"
 
+$ButtonMenuHeader = '⋮'
 $ButtonMenuToolTip = "More actions"
 
 $ConstructButtonHeader = 'Construct'
@@ -410,7 +417,8 @@ function Get-FunctionMeasurementSummary {
                 if ($Count % 2 -eq 1) {
                     $Mid = [int][Math]::Floor($Count / 2)
                     $Item.MedianMilliseconds = [Math]::Round($Sorted[$Mid], 3)
-                } else {
+                }
+                else {
                     $Mid = [int]($Count / 2)
                     $Item.MedianMilliseconds = [Math]::Round((($Sorted[$Mid - 1] + $Sorted[$Mid]) / 2.0), 3)
                 }
@@ -591,7 +599,7 @@ function Find-ObjectWhere {
         [int]$FindMax = -1,
         [int]$AlreadyFound = 0
     )
-    Start-FunctionMeasurement -FunctionName "Find-ObjectWhere"
+    Start-FunctionMeasurement -FunctionName "Find-ObjectWhere: $FindWhere"
     $Found = @()
     $RecurseCount = 0
     :DigProperties foreach ($DigProperty in $DigProperties) {
@@ -635,11 +643,10 @@ function Find-ObjectWhere {
         } # ObjectChildren
     } # DigProperties
     if ($Found.count -gt 0) {
-        #Write-Host "[$(Get-Date)] {Find-ObjectWhere} [$($Object.Value.Name)] D:$Depth\$DepthMax`:$RecurseCount - $($Found.Name -join ', ') F:$AlreadyFound/$FindMax" -ForegroundColor Magenta
-        Stop-FunctionMeasurement -FunctionName "Find-ObjectWhere"
+        Stop-FunctionMeasurement -FunctionName "Find-ObjectWhere: $FindWhere"
         return $Found
     }
-    Stop-FunctionMeasurement -FunctionName "Find-ObjectWhere"
+    Stop-FunctionMeasurement -FunctionName "Find-ObjectWhere: $FindWhere"
 } # function Find-ObjectWhere
 
 function Find-Title {
@@ -669,7 +676,23 @@ function Get-ContentWrapperFromButton {
     )
     Start-FunctionMeasurement -FunctionName "Get-ContentWrapperFromButton"
     $TargetButton = Resolve-TargetElement $Button
-    if (-not $TargetButton -or -not $TargetButton.Name) { return $null }
+    if (-not $TargetButton) { return $null }
+    if ($script:UniversalSharedMenu -and $script:UniversalSharedMenu.Tag -is [hashtable] -and $script:UniversalSharedMenu.Tag.ContainsKey('ActiveWrapper') -and $script:UniversalSharedMenu.Tag.ActiveWrapper) {
+        $IsSharedMenuButton = $false
+        $CheckElement = $TargetButton
+        while ($CheckElement) {
+            if ($CheckElement -eq $script:UniversalSharedMenu) {
+                $IsSharedMenuButton = $true
+                break
+            }
+            $CheckElement = $CheckElement.Parent
+        }
+        if ($IsSharedMenuButton) {
+            Stop-FunctionMeasurement -FunctionName "Get-ContentWrapperFromButton"
+            return $script:UniversalSharedMenu.Tag.ActiveWrapper
+        }
+    }
+    if (-not $TargetButton.Name) { return $null }
     $ExpectedWrapperName = $TargetButton.Name.Replace("_$Suffix", '')
     $ContentWrapper = Find-ObjectWhere -Object ([ref]$TargetButton) -FindWhere { $_.Name -eq $ExpectedWrapperName } -DigProperties 'Parent' -FindMax 1
     Stop-FunctionMeasurement -FunctionName "Get-ContentWrapperFromButton"
@@ -685,6 +708,16 @@ function Get-ParentWrapperBorder {
     $Target = Resolve-TargetElement $Element
     if (-not $Target) { return $null }
     $TargetNames = if ($HeaderOnly) { @($ContentHeaderBorderName) } else { @($ContentHeaderBorderName, $ContentBorderName) }
+
+    $Current = $Target.Parent
+    while ($null -ne $Current) {
+        if ($TargetNames -contains $Current.Name) {
+            Stop-FunctionMeasurement -FunctionName "Get-ParentWrapperBorder"
+            return (Resolve-TargetElement $Current)
+        }
+        $Current = $Current.Parent
+    }
+
     $Found = Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $TargetNames -contains $_.Name } -DigProperties 'Parent' -FindMax 1
     Stop-FunctionMeasurement -FunctionName "Get-ParentWrapperBorder"
     return (Resolve-TargetElement $Found)
@@ -701,8 +734,12 @@ function Get-WrapperMenu {
         return (Resolve-TargetElement $Target.Tag.Menu)
     }
     $Found = Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $_.Name -eq $MenuName } -DepthMax 1 -DepthWhere { $_.Name -eq $ContentSlotElementName } -FindMax 1
+    $ResolvedMenu = Resolve-TargetElement $Found
+    if ($ResolvedMenu -and ($Target.Tag -is [hashtable])) {
+        $Target.Tag.Menu = $ResolvedMenu
+    }
     Stop-FunctionMeasurement -FunctionName "Get-WrapperMenu"
-    return (Resolve-TargetElement $Found)
+    return $ResolvedMenu
 } # function Get-WrapperMenu
 
 function Get-WrapperContentSlot {
@@ -711,13 +748,188 @@ function Get-WrapperContentSlot {
     $Target = Resolve-TargetElement $Wrapper
     if (-not $Target) { return $null }
     if ($Target.Name -eq $ContentSlotElementName) { return $Target }
-    if ($Target.Tag -is [hashtable] -and $Target.Tag.ContentSlot) {
+    if ($Target.Tag -is [hashtable] -and $Target.Tag.ContainsKey('ContentSlot') -and $Target.Tag.ContentSlot) {
         return (Resolve-TargetElement $Target.Tag.ContentSlot)
     }
     $Found = Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $_.Name -eq $ContentSlotElementName } -DepthMax 1 -DepthWhere { $_.Name -eq $ContentSlotElementName } -FindMax 1
+    $ResolvedSlot = Resolve-TargetElement $Found
+    if ($ResolvedSlot -and ($Target.Tag -is [hashtable])) {
+        $Target.Tag.ContentSlot = $ResolvedSlot
+    }
     Stop-FunctionMeasurement -FunctionName "Get-WrapperContentSlot"
-    return (Resolve-TargetElement $Found)
+    return $ResolvedSlot
 } # function Get-WrapperContentSlot
+
+function Get-WrapperLockIndicatorButton {
+    param([Parameter(Mandatory)]$Wrapper)
+    Start-FunctionMeasurement -FunctionName "Get-WrapperLockIndicatorButton"
+    $Target = Resolve-TargetElement $Wrapper
+    if (-not $Target) { return $null }
+    if ($Target.Tag -is [hashtable] -and $Target.Tag.ContainsKey('LockIndicatorButton')) {
+        Stop-FunctionMeasurement -FunctionName "Get-WrapperLockIndicatorButton"
+        return $Target.Tag.LockIndicatorButton
+    }
+    $Button = Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $_.Name -like "*$UniversalMenuLockIndicatorButtonName*" } -DepthMax 2 -FindMax 1
+    $ResolvedButton = Resolve-TargetElement $Button
+    if ($Target.Tag -is [hashtable]) {
+        $Target.Tag.LockIndicatorButton = $ResolvedButton
+    }
+    Stop-FunctionMeasurement -FunctionName "Get-WrapperLockIndicatorButton"
+    return $ResolvedButton
+} # function Get-WrapperLockIndicatorButton
+
+function Get-WrapperDisableIndicatorButton {
+    param([Parameter(Mandatory)]$Wrapper)
+    Start-FunctionMeasurement -FunctionName "Get-WrapperDisableIndicatorButton"
+    $Target = Resolve-TargetElement $Wrapper
+    if (-not $Target) { return $null }
+    if ($Target.Tag -is [hashtable] -and $Target.Tag.ContainsKey('DisableIndicatorButton')) {
+        Stop-FunctionMeasurement -FunctionName "Get-WrapperDisableIndicatorButton"
+        return $Target.Tag.DisableIndicatorButton
+    }
+    $Button = Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $_.Name -like "*$UniversalMenuDisableIndicatorButtonName*" } -DepthMax 2 -FindMax 1
+    $ResolvedButton = Resolve-TargetElement $Button
+    if ($Target.Tag -is [hashtable]) {
+        $Target.Tag.DisableIndicatorButton = $ResolvedButton
+    }
+    Stop-FunctionMeasurement -FunctionName "Get-WrapperDisableIndicatorButton"
+    return $ResolvedButton
+} # function Get-WrapperDisableIndicatorButton
+
+function Set-WrapperLockVisualState {
+    param(
+        [Parameter(Mandatory)]$Wrapper,
+        [Parameter(Mandatory)][bool]$IsLocked
+    )
+    Start-FunctionMeasurement -FunctionName 'Set-WrapperLockVisualState'
+    $Target = Resolve-TargetElement $Wrapper
+    if (-not $Target) { return }
+
+    $Dock = if ($Target.Name -eq $ContentHeaderBorderName) {
+        Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $_.Name -eq $ContentHeaderTitleBorderDockName } -FindMax 1
+    }
+    else {
+        Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $_.Name -eq $ContentBorderDockName } -FindMax 1
+    }
+    if (-not $Dock) { return }
+
+    $ExistingButton = Get-WrapperLockIndicatorButton -Wrapper $Target
+    if ($IsLocked) {
+        if (-not $ExistingButton) {
+            $Button = New-BaseButton @{
+                Name                       = "$($Target.Name)_$UniversalMenuLockIndicatorButtonName"
+                Content                    = '🔒'
+                ToolTip                    = $LockUnlockButtonItemToolTipLocked
+                Background                 = 'Transparent'
+                BorderBrush                = 'Transparent'
+                BorderThickness            = 0
+                Cursor                     = 'Hand'
+                VerticalAlignment          = 'Center'
+                HorizontalAlignment        = 'Left'
+                VerticalContentAlignment   = 'Center'
+                HorizontalContentAlignment = 'Center'
+                Width                      = 18
+                Height                     = 18
+                Padding                    = 0
+                Margin                     = '2,0,2,0'
+                FontSize                   = 11
+                Foreground                 = 'Black'
+                Focusable                  = $true
+            }
+            $Button.Add_Click({
+                    param($s, $e)
+                    $ParentTarget = Get-ParentWrapperBorder -Element $s
+                    if ($ParentTarget) {
+                        Set-TargetLockedState -Target $ParentTarget -IsLocked $false
+                    }
+                })
+
+            # Lock is always placed on the far left (index 0)
+            $Dock.Children.Insert(0, $Button)
+            [System.Windows.Controls.DockPanel]::SetDock($Button, 'Left')
+        }
+    }
+    else {
+        if ($ExistingButton -and $ExistingButton.Parent) {
+            $ExistingButton.Parent.Children.Remove($ExistingButton)
+        }
+    }
+    Stop-FunctionMeasurement -FunctionName 'Set-WrapperLockVisualState'
+} # function Set-WrapperLockVisualState
+
+function Set-WrapperDisabledVisualState {
+    param(
+        [Parameter(Mandatory)]$Wrapper,
+        [Parameter(Mandatory)][bool]$IsDisabled
+    )
+    Start-FunctionMeasurement -FunctionName 'Set-WrapperDisabledVisualState'
+    $Target = Resolve-TargetElement $Wrapper
+    if (-not $Target) { return }
+
+    $Dock = if ($Target.Name -eq $ContentHeaderBorderName) {
+        Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $_.Name -eq $ContentHeaderTitleBorderDockName } -FindMax 1
+    }
+    else {
+        Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $_.Name -eq $ContentBorderDockName } -FindMax 1
+    }
+    if (-not $Dock) { return }
+
+    $ExistingButton = Get-WrapperDisableIndicatorButton -Wrapper $Target
+    if ($IsDisabled) {
+        if (-not $ExistingButton) {
+            $Button = New-BaseButton @{
+                Name                       = "$($Target.Name)_$UniversalMenuDisableIndicatorButtonName"
+                Content                    = '❌'
+                ToolTip                    = $DisableEnableButtonToolTipDisabled
+                Background                 = 'Transparent'
+                BorderBrush                = 'Transparent'
+                BorderThickness            = 0
+                Cursor                     = 'Hand'
+                VerticalAlignment          = 'Center'
+                HorizontalAlignment        = 'Left'
+                VerticalContentAlignment   = 'Center'
+                HorizontalContentAlignment = 'Center'
+                Width                      = 18
+                Height                     = 18
+                Padding                    = 0
+                Margin                     = '2,0,2,0'
+                FontSize                   = 11
+                Foreground                 = 'Black'
+                Focusable                  = $true
+            }
+            $Button.Add_Click({
+                    param($s, $e)
+                    $ParentTarget = Get-ParentWrapperBorder -Element $s
+                    if ($ParentTarget) {
+                        if (Get-IsLocked $ParentTarget) { return }
+                        Set-TargetDisabledState -Target $ParentTarget -IsDisabled $false
+                    }
+                })
+
+            # If Lock indicator exists, place Disable after it; otherwise at index 0
+            $ExistingLock = Get-WrapperLockIndicatorButton -Wrapper $Target
+            $InsertIndex = if ($ExistingLock -and $ExistingLock.Parent -eq $Dock) {
+                $Dock.Children.IndexOf($ExistingLock) + 1
+            }
+            else {
+                0
+            }
+            if ($InsertIndex -ge $Dock.Children.Count) {
+                [void]$Dock.Children.Add($Button)
+            }
+            else {
+                $Dock.Children.Insert($InsertIndex, $Button)
+            }
+            [System.Windows.Controls.DockPanel]::SetDock($Button, 'Left')
+        }
+    }
+    else {
+        if ($ExistingButton -and $ExistingButton.Parent) {
+            $ExistingButton.Parent.Children.Remove($ExistingButton)
+        }
+    }
+    Stop-FunctionMeasurement -FunctionName 'Set-WrapperDisabledVisualState'
+} # function Set-WrapperDisabledVisualState
 
 function Set-RichTextBoxText {
     param(
@@ -903,6 +1115,28 @@ function New-BaseButton {
     Stop-FunctionMeasurement -FunctionName 'New-BaseButton'
 } # function New-BaseButton
 
+function New-BaseCheckBox {
+    param( [hashtable]$Parameters = @{} )
+    Start-FunctionMeasurement -FunctionName 'New-BaseCheckBox'
+    $Parameters.FontFamily = $FontFamily
+    $Parameters.Foreground = '#EDEAFA'
+    $Parameters.Cursor = 'Hand'
+    [System.Windows.Controls.CheckBox]$Parameters
+
+    Stop-FunctionMeasurement -FunctionName 'New-BaseCheckBox'
+} # function New-BaseCheckBox
+
+function New-BaseRadioButton {
+    param( [hashtable]$Parameters = @{} )
+    Start-FunctionMeasurement -FunctionName 'New-BaseRadioButton'
+    $Parameters.FontFamily = $FontFamily
+    $Parameters.Foreground = '#EDEAFA'
+    $Parameters.Cursor = 'Hand'
+    [System.Windows.Controls.RadioButton]$Parameters
+
+    Stop-FunctionMeasurement -FunctionName 'New-BaseRadioButton'
+} # function New-BaseRadioButton
+
 function New-BaseSeparator {
     param( [hashtable]$Parameters = @{} )
     Start-FunctionMeasurement -FunctionName 'New-BaseSeparator'
@@ -978,13 +1212,27 @@ function Reset-ArrayIndexes {
     if ($Array.Name -ne $ContentSlotElementName) {
         $Array = Find-ObjectWhere -Object $ItemInArray -FindWhere { $_.Name -eq $ContentSlotElementName } -DigProperties 'Parent' -FindMax 1
     }
-    $IndexBlocks = Find-ObjectWhere -Object ([ref]$Array) -FindWhere { $_.Name -like "*$IndexBoxNameSuffix" } -DepthMax 1 -DepthWhere { $_.Name -eq $ContentSlotElementName }
 
     $IndexCounter = 1
-    :IndexBlocks foreach ($IndexBlock in $IndexBlocks) {
-        $IndexBlock.Text = "$($IndexCounter)"
-        $IndexCounter ++
-    } # IndexBlocks
+    if ($Array -and $Array.Children.Count -gt 0) {
+        foreach ($Child in @($Array.Children)) {
+            if (-not ($Child.Tag -is [hashtable])) {
+                $Child.Tag = @{}
+            }
+            $Box = if ($Child.Tag.ContainsKey('IndexBox') -and $Child.Tag.IndexBox) {
+                $Child.Tag.IndexBox
+            }
+            else {
+                $FoundBox = Find-ObjectWhere -Object ([ref]$Child) -FindWhere { $_.Name -like "*$IndexBoxNameSuffix" } -FindMax 1
+                $Child.Tag.IndexBox = $FoundBox
+                $FoundBox
+            }
+            if ($Box) {
+                $Box.Text = "$IndexCounter"
+                $IndexCounter++
+            }
+        }
+    }
     Stop-FunctionMeasurement -FunctionName "Reset-ArrayIndexes"
 } # function Reset-ArrayIndexes
 
@@ -995,6 +1243,9 @@ function Build-Object {
     )
     Start-FunctionMeasurement -FunctionName "Build-Object"
     $ConstructTitle, $ConstructDescription = (Find-Title $Object.Value).Split('-').Trim()
+    if ($ConstructDescription) {
+        $ConstructDescription = [System.Text.RegularExpressions.Regex]::Replace($ConstructDescription, '\[.*?\]', '[]')
+    }
 
     $ContentHeaderBorder = Find-ObjectWhere -Object $Object -FindWhere { $_.Name -eq $ContentHeaderBorderName }
     $Construct = Find-ObjectWhere -Object $ContentHeaderBorder -FindWhere { $_.Name -eq $ConstructName }
@@ -1014,9 +1265,10 @@ function Build-Object {
     [array]$OtherParameters = Find-ObjectWhere -Object $Construct -FindWhere { $_.Name -eq $ContentElementName } -DepthMax 1 -DepthWhere { $_.Name -eq $ConstructName }
     :OtherParameters foreach ($Parameter in $OtherParameters) {
         $ParameterName, $ParameterType = (Find-Title $Parameter).Split('-').Trim()
+        $CleanParameterType = if ($ParameterType) { [System.Text.RegularExpressions.Regex]::Replace($ParameterType, '\[.*?\]', '[]') } else { $ParameterType }
         $ParameterValue = Get-ContentValue -Object $Parameter
         if ($null -ne $ParameterValue) {
-            if ($ParameterType -like '*`[]') {
+            if ($CleanParameterType -like '*`[]') {
                 $ParameterValues[$ParameterName] += @($ParameterValue)
             }
             else {
@@ -1114,9 +1366,37 @@ function Add-ChildToItemsButtonMenu {
     param( [ref]$Item, [ref]$Child, [int]$Index = -1 )
     Start-FunctionMeasurement -FunctionName "Add-ChildToItemsButtonMenu"
 
-    $ButtonMenu = Find-ObjectWhere -Object $Item -FindWhere { $_.Name -eq $ButtonMenuName } -FindMax 1
+    $ResolvedItem = Resolve-TargetElement $Item.Value
+    if (-not $ResolvedItem) {
+        Stop-FunctionMeasurement -FunctionName "Add-ChildToItemsButtonMenu"
+        return
+    }
 
-    if ($Index -lt 0 -or $Index -gt $ButtonMenu.Items.Count) { $Index = $ButtonMenu.Items.Count }
+    $ButtonMenu = Find-ObjectWhere -Object ([ref]$ResolvedItem) -FindWhere { $_.Name -eq $ButtonMenuName } -FindMax 1
+
+    if ($ButtonMenu) {
+        if ($Index -lt 0 -or $Index -gt $ButtonMenu.Items.Count) { $Index = $ButtonMenu.Items.Count }
+        try {
+            $ButtonMenu.Items.Insert($Index, $Child.Value) | Out-Null
+        }
+        catch {
+            Write-Host "{Add-ChildToItemsButtonMenu} $_" -ForegroundColor Red
+        }
+        $ButtonMenu.Visibility = 'Visible'
+    }
+    else {
+        if (-not ($ResolvedItem.Tag -is [hashtable])) { $ResolvedItem.Tag = @{} }
+        if (-not ($ResolvedItem.Tag.ContainsKey('ExtraMenuItems')) -or -not ($ResolvedItem.Tag.ExtraMenuItems -is [System.Collections.ArrayList])) {
+            $ResolvedItem.Tag.ExtraMenuItems = [System.Collections.ArrayList]@()
+        }
+        if ($Index -lt 0 -or $Index -gt $ResolvedItem.Tag.ExtraMenuItems.Count) {
+            $Index = $ResolvedItem.Tag.ExtraMenuItems.Count
+        }
+        $ResolvedItem.Tag.ExtraMenuItems.Insert($Index, $Child.Value) | Out-Null
+    }
+    Stop-FunctionMeasurement -FunctionName "Add-ChildToItemsButtonMenu"
+    return
+
     try {
         $ButtonMenu.Items.Insert($Index, $Child.Value) | Out-Null
     }
@@ -1287,6 +1567,349 @@ function Clear-WrapperContent {
     Stop-FunctionMeasurement -FunctionName "Clear-WrapperContent"
 } # function Clear-WrapperContent
 
+function Get-RandomValuesConfiguration {
+    param(
+        $Wrapper = $null
+    )
+    Start-FunctionMeasurement -FunctionName 'Get-RandomValuesConfiguration'
+    $TargetWrapper = if ($Wrapper) { Resolve-TargetElement $Wrapper } else { $null }
+    if ($TargetWrapper -and $TargetWrapper.Tag -is [hashtable] -and $TargetWrapper.Tag.ContainsKey('RandomValuesConfiguration') -and $TargetWrapper.Tag.RandomValuesConfiguration) {
+        Stop-FunctionMeasurement -FunctionName 'Get-RandomValuesConfiguration'
+        return $TargetWrapper.Tag.RandomValuesConfiguration
+    }
+
+    if ($script:GlobalRandomValuesConfiguration -is [hashtable]) {
+        Stop-FunctionMeasurement -FunctionName 'Get-RandomValuesConfiguration'
+        return $script:GlobalRandomValuesConfiguration
+    }
+
+    if ($RandomValuesConfigurationFilePath -and (Test-Path -LiteralPath $RandomValuesConfigurationFilePath)) {
+        try {
+            $FileContent = Get-Content -LiteralPath $RandomValuesConfigurationFilePath -Raw -ErrorAction Stop
+            $Parsed = ConvertFrom-Json -InputObject $FileContent -ErrorAction Stop
+            $Configuration = @{
+                GenerationMode             = if ($Parsed.GenerationMode) { [string]$Parsed.GenerationMode } else { 'CharacterSets' }
+                RegularExpressionPattern   = if ($Parsed.RegularExpressionPattern) { [string]$Parsed.RegularExpressionPattern } else { '\(\d{3}\) \d{3}-\d{4}' }
+                UnboundedRepetitionMaximum = if ($Parsed.UnboundedRepetitionMaximum -gt 0) { [int]$Parsed.UnboundedRepetitionMaximum } else { 5 }
+                Length                     = if ($Parsed.Length -gt 0) { [int]$Parsed.Length } else { 10 }
+                IncludeUppercase           = if ($null -ne $Parsed.IncludeUppercase) { [bool]$Parsed.IncludeUppercase } else { $true }
+                UppercaseCharacters        = if ($null -ne $Parsed.UppercaseCharacters) { [string]$Parsed.UppercaseCharacters } else { 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' }
+                IncludeLowercase           = if ($null -ne $Parsed.IncludeLowercase) { [bool]$Parsed.IncludeLowercase } else { $true }
+                LowercaseCharacters        = if ($null -ne $Parsed.LowercaseCharacters) { [string]$Parsed.LowercaseCharacters } else { 'abcdefghijklmnopqrstuvwxyz' }
+                IncludeNumbers             = if ($null -ne $Parsed.IncludeNumbers) { [bool]$Parsed.IncludeNumbers } else { $true }
+                NumberCharacters           = if ($null -ne $Parsed.NumberCharacters) { [string]$Parsed.NumberCharacters } else { '0123456789' }
+                IncludeSymbols             = if ($null -ne $Parsed.IncludeSymbols) { [bool]$Parsed.IncludeSymbols } else { $false }
+                SymbolCharacters           = if ($null -ne $Parsed.SymbolCharacters) { [string]$Parsed.SymbolCharacters } else { '!@#$%^&*()_+-=[]{}|;:,.<>?' }
+            }
+            $script:GlobalRandomValuesConfiguration = $Configuration
+            Stop-FunctionMeasurement -FunctionName 'Get-RandomValuesConfiguration'
+            return $Configuration
+        }
+        catch {
+            Write-Host "{Get-RandomValuesConfiguration} Error reading configuration file: $_" -ForegroundColor Yellow
+        }
+    }
+
+    $DefaultConfiguration = @{
+        GenerationMode             = 'CharacterSets'
+        RegularExpressionPattern   = '\(\d{3}\) \d{3}-\d{4}'
+        UnboundedRepetitionMaximum = 5
+        Length                     = 10
+        IncludeUppercase           = $true
+        UppercaseCharacters        = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+        IncludeLowercase           = $true
+        LowercaseCharacters        = 'abcdefghijklmnopqrstuvwxyz'
+        IncludeNumbers             = $true
+        NumberCharacters           = '0123456789'
+        IncludeSymbols             = $false
+        SymbolCharacters           = '!@#$%^&*()_+-=[]{}|;:,.<>?'
+    }
+    Stop-FunctionMeasurement -FunctionName 'Get-RandomValuesConfiguration'
+    return $DefaultConfiguration
+} # function Get-RandomValuesConfiguration
+
+function Get-RandomStringFromRegularExpression {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Pattern,
+        [int]$UnboundedRepetitionMaximum = 5
+    )
+    Start-FunctionMeasurement -FunctionName 'Get-RandomStringFromRegularExpression'
+
+    $Digits = '0123456789'.ToCharArray()
+    $Words = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_'.ToCharArray()
+    $Spaces = @([char]32)
+    $Printable = (32..126 | ForEach-Object { [char]$_ })
+
+    $Index = 0
+    $Length = $Pattern.Length
+
+    $ParseClass = {
+        $Negated = $false
+        if ($Index -lt $Length -and $Pattern[$Index] -eq '^') {
+            $Negated = $true
+            $Index++
+        }
+        $ClassCharacters = New-Object System.Collections.Generic.HashSet[char]
+        while ($Index -lt $Length -and $Pattern[$Index] -ne ']') {
+            $CurrentCharacter = $Pattern[$Index]
+            $Index++
+            if ($CurrentCharacter -eq '\' -and $Index -lt $Length) {
+                $EscapedCharacter = $Pattern[$Index]
+                $Index++
+                switch ($EscapedCharacter) {
+                    'd' { $Digits | ForEach-Object { [void]$ClassCharacters.Add($_) } }
+                    'w' { $Words | ForEach-Object { [void]$ClassCharacters.Add($_) } }
+                    's' { $Spaces | ForEach-Object { [void]$ClassCharacters.Add($_) } }
+                    default { [void]$ClassCharacters.Add($EscapedCharacter) }
+                }
+            }
+            elseif ($Index + 1 -lt $Length -and $Pattern[$Index] -eq '-' -and $Pattern[$Index + 1] -ne ']') {
+                $Index++
+                $EndCharacter = $Pattern[$Index]
+                $Index++
+                $StartAscii = [int][char]$CurrentCharacter
+                $EndAscii = [int][char]$EndCharacter
+                if ($StartAscii -le $EndAscii) {
+                    for ($c = $StartAscii; $c -le $EndAscii; $c++) {
+                        [void]$ClassCharacters.Add([char]$c)
+                    }
+                }
+                else {
+                    [void]$ClassCharacters.Add($CurrentCharacter)
+                    [void]$ClassCharacters.Add($EndCharacter)
+                }
+            }
+            else {
+                [void]$ClassCharacters.Add($CurrentCharacter)
+            }
+        }
+        if ($Index -lt $Length -and $Pattern[$Index] -eq ']') { $Index++ }
+
+        if ($Negated) {
+            $Remaining = New-Object System.Collections.Generic.List[char]
+            foreach ($p in $Printable) {
+                if (-not $ClassCharacters.Contains($p)) { $Remaining.Add($p) }
+            }
+            return $Remaining
+        }
+        return (New-Object System.Collections.Generic.List[char] $ClassCharacters)
+    }
+
+    $ParseQuantifier = {
+        if ($Index -ge $Length) { return 1 }
+        $Next = $Pattern[$Index]
+        if ($Next -eq '?') {
+            $Index++
+            return (Get-Random -Minimum 0 -Maximum 2)
+        }
+        if ($Next -eq '*') {
+            $Index++
+            return (Get-Random -Minimum 0 -Maximum ($UnboundedRepetitionMaximum + 1))
+        }
+        if ($Next -eq '+') {
+            $Index++
+            return (Get-Random -Minimum 1 -Maximum ($UnboundedRepetitionMaximum + 1))
+        }
+        if ($Next -eq '{') {
+            $EndBracket = $Pattern.IndexOf('}', $Index)
+            if ($EndBracket -gt $Index) {
+                $Specifier = $Pattern.Substring($Index + 1, $EndBracket - $Index - 1)
+                $Index = $EndBracket + 1
+                if ($Specifier.Contains(',')) {
+                    $Parts = $Specifier.Split(',')
+                    $Minimum = [int]$Parts[0]
+                    $Maximum = if ($Parts[1].Trim().Length -gt 0) { [int]$Parts[1] } else { $Minimum + $UnboundedRepetitionMaximum }
+                    return (Get-Random -Minimum $Minimum -Maximum ($Maximum + 1))
+                }
+                else {
+                    return [int]$Specifier
+                }
+            }
+        }
+        return 1
+    }
+
+    $ParseSequence = $null
+    $ParseSequence = {
+        $Result = New-Object System.Text.StringBuilder
+        while ($Index -lt $Length) {
+            $Char = $Pattern[$Index]
+            if ($Char -eq ')' -or $Char -eq '|') { break }
+            if ($Char -eq '^' -or $Char -eq '$') { $Index++; continue }
+
+            $Generator = $null
+            if ($Char -eq '(') {
+                $Index++
+                $SubPatternIndex = $Index
+                $NestingLevel = 1
+                $GroupBranches = New-Object System.Collections.Generic.List[string]
+                $CurrentBranchStart = $Index
+                while ($Index -lt $Length -and $NestingLevel -gt 0) {
+                    if ($Pattern[$Index] -eq '\' -and $Index + 1 -lt $Length) { $Index += 2; continue }
+                    if ($Pattern[$Index] -eq '(') { $NestingLevel++ }
+                    elseif ($Pattern[$Index] -eq ')') {
+                        $NestingLevel--
+                        if ($NestingLevel -eq 0) {
+                            $GroupBranches.Add($Pattern.Substring($CurrentBranchStart, $Index - $CurrentBranchStart))
+                            $Index++
+                            break
+                        }
+                    }
+                    elseif ($Pattern[$Index] -eq '|' -and $NestingLevel -eq 1) {
+                        $GroupBranches.Add($Pattern.Substring($CurrentBranchStart, $Index - $CurrentBranchStart))
+                        $CurrentBranchStart = $Index + 1
+                    }
+                    $Index++
+                }
+                $CapturedBranches = $GroupBranches.ToArray()
+                $Generator = {
+                    $Selected = $CapturedBranches[(Get-Random -Minimum 0 -Maximum $CapturedBranches.Length)]
+                    Get-RandomStringFromRegularExpression -Pattern $Selected -UnboundedRepetitionMaximum $UnboundedRepetitionMaximum
+                }
+            }
+            elseif ($Char -eq '[') {
+                $Index++
+                $ClassPool = . $ParseClass
+                $Generator = {
+                    if ($ClassPool.Count -gt 0) {
+                        $ClassPool[(Get-Random -Minimum 0 -Maximum $ClassPool.Count)]
+                    }
+                    else { '' }
+                }
+            }
+            elseif ($Char -eq '\') {
+                $Index++
+                if ($Index -lt $Length) {
+                    $Escaped = $Pattern[$Index]
+                    $Index++
+                    switch ($Escaped) {
+                        'd' { $Generator = { $Digits[(Get-Random -Minimum 0 -Maximum $Digits.Length)] } }
+                        'w' { $Generator = { $Words[(Get-Random -Minimum 0 -Maximum $Words.Length)] } }
+                        's' { $Generator = { ' ' } }
+                        default { $LiteralEscaped = [string]$Escaped; $Generator = { $LiteralEscaped } }
+                    }
+                }
+            }
+            elseif ($Char -eq '.') {
+                $Index++
+                $Generator = { $Printable[(Get-Random -Minimum 0 -Maximum $Printable.Length)] }
+            }
+            else {
+                $Index++
+                $LiteralChar = [string]$Char
+                $Generator = { $LiteralChar }
+            }
+
+            $Count = . $ParseQuantifier
+            for ($k = 0; $k -lt $Count; $k++) {
+                [void]$Result.Append((& $Generator))
+            }
+        }
+        return $Result.ToString()
+    }
+
+    $BranchesTop = New-Object System.Collections.Generic.List[string]
+    $TopStart = 0
+    $Nesting = 0
+    for ($i = 0; $i -lt $Length; $i++) {
+        if ($Pattern[$i] -eq '\' -and $i + 1 -lt $Length) { $i++; continue }
+        if ($Pattern[$i] -eq '(') { $Nesting++ }
+        elseif ($Pattern[$i] -eq ')') { $Nesting-- }
+        elseif ($Pattern[$i] -eq '|' -and $Nesting -eq 0) {
+            $BranchesTop.Add($Pattern.Substring($TopStart, $i - $TopStart))
+            $TopStart = $i + 1
+        }
+    }
+    $BranchesTop.Add($Pattern.Substring($TopStart, $Length - $TopStart))
+
+    $SelectedTop = if ($BranchesTop.Count -gt 1) {
+        $BranchesTop[(Get-Random -Minimum 0 -Maximum $BranchesTop.Count)]
+    }
+    else {
+        $Pattern
+    }
+
+    $Pattern = $SelectedTop
+    $Length = $Pattern.Length
+    $Index = 0
+    $Output = . $ParseSequence
+
+    Stop-FunctionMeasurement -FunctionName 'Get-RandomStringFromRegularExpression'
+    return $Output
+} # function Get-RandomStringFromRegularExpression
+
+function Get-RandomCustomString {
+    param(
+        [hashtable]$Configuration,
+        [int]$Length = 0
+    )
+    Start-FunctionMeasurement -FunctionName 'Get-RandomCustomString'
+    if (-not $Configuration) {
+        $Configuration = Get-RandomValuesConfiguration
+    }
+
+    if ($Configuration.ContainsKey('GenerationMode') -and $Configuration.GenerationMode -eq 'RegularExpression') {
+        $Pattern = if ($Configuration.ContainsKey('RegularExpressionPattern') -and -not [string]::IsNullOrWhiteSpace($Configuration.RegularExpressionPattern)) {
+            [string]$Configuration.RegularExpressionPattern
+        }
+        else {
+            '\(\d{3}\) \d{3}-\d{4}'
+        }
+        $MaxRepetition = if ($Configuration.ContainsKey('UnboundedRepetitionMaximum') -and $Configuration.UnboundedRepetitionMaximum -gt 0) {
+            [int]$Configuration.UnboundedRepetitionMaximum
+        }
+        else {
+            5
+        }
+        $GeneratedRegexString = Get-RandomStringFromRegularExpression -Pattern $Pattern -UnboundedRepetitionMaximum $MaxRepetition
+        Stop-FunctionMeasurement -FunctionName 'Get-RandomCustomString'
+        return $GeneratedRegexString
+    }
+
+    $TargetLength = if ($Length -gt 0) {
+        $Length
+    }
+    elseif ($Configuration.ContainsKey('Length') -and $Configuration.Length -gt 0) {
+        [int]$Configuration.Length
+    }
+    else {
+        10
+    }
+
+    $UniqueCharacterSet = New-Object System.Collections.Generic.HashSet[char]
+    if ($Configuration.IncludeUppercase) {
+        $Characters = if ($Configuration.ContainsKey('UppercaseCharacters') -and $null -ne $Configuration.UppercaseCharacters) { [string]$Configuration.UppercaseCharacters } else { 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' }
+        $Characters.ToCharArray() | ForEach-Object { [void]$UniqueCharacterSet.Add($_) }
+    }
+    if ($Configuration.IncludeLowercase) {
+        $Characters = if ($Configuration.ContainsKey('LowercaseCharacters') -and $null -ne $Configuration.LowercaseCharacters) { [string]$Configuration.LowercaseCharacters } else { 'abcdefghijklmnopqrstuvwxyz' }
+        $Characters.ToCharArray() | ForEach-Object { [void]$UniqueCharacterSet.Add($_) }
+    }
+    if ($Configuration.IncludeNumbers) {
+        $Characters = if ($Configuration.ContainsKey('NumberCharacters') -and $null -ne $Configuration.NumberCharacters) { [string]$Configuration.NumberCharacters } else { '0123456789' }
+        $Characters.ToCharArray() | ForEach-Object { [void]$UniqueCharacterSet.Add($_) }
+    }
+    if ($Configuration.IncludeSymbols) {
+        $Characters = if ($Configuration.ContainsKey('SymbolCharacters') -and $null -ne $Configuration.SymbolCharacters) { [string]$Configuration.SymbolCharacters } else { '!@#$%^&*()_+-=[]{}|;:,.<>?' }
+        $Characters.ToCharArray() | ForEach-Object { [void]$UniqueCharacterSet.Add($_) }
+    }
+
+    if ($UniqueCharacterSet.Count -eq 0) {
+        'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'.ToCharArray() | ForEach-Object { [void]$UniqueCharacterSet.Add($_) }
+    }
+
+    $CharacterPool = New-Object System.Collections.Generic.List[char] $UniqueCharacterSet
+
+    $RandomCharacters = [char[]](1..$TargetLength | ForEach-Object {
+            $CharacterPool[(Get-Random -Minimum 0 -Maximum $CharacterPool.Count)]
+        })
+    $GeneratedString = -join $RandomCharacters
+
+    Stop-FunctionMeasurement -FunctionName 'Get-RandomCustomString'
+    return $GeneratedString
+} # function Get-RandomCustomString
+
 function Set-WrapperRandomContent {
     param(
         [ref]$Wrapper
@@ -1301,6 +1924,8 @@ function Set-WrapperRandomContent {
         $Contents += $ChildContents
     }
 
+    $RandomConfiguration = Get-RandomValuesConfiguration -Wrapper $Wrapper.Value
+
     :Contents foreach ($Content in $Contents) {
         if ((Get-IsLocked ([ref]$Content))) { continue Contents }
 
@@ -1309,10 +1934,13 @@ function Set-WrapperRandomContent {
         switch ($Content.GetType().Name) {
             'TextBox' {
                 if ($Content.MaxLength -eq 1) {
-                    $Content.Text = [string]([char](Get-Random -Minimum 65 -Maximum 90))
+                    $Content.Text = Get-RandomCustomString -Configuration $RandomConfiguration -Length 1
+                }
+                elseif ($Content.Tag -is [hashtable] -and $Content.Tag.ContainsKey('TargetType') -and $Content.Tag.TargetType -and $Content.Tag.TargetType -ne [string]) {
+                    $Content.Text = (Get-Random -Minimum 0 -Maximum 100).ToString()
                 }
                 else {
-                    $Content.Text = (Get-Random -Minimum 0 -Maximum 100).ToString()
+                    $Content.Text = Get-RandomCustomString -Configuration $RandomConfiguration
                 }
             }
             'ComboBox' {
@@ -1321,10 +1949,10 @@ function Set-WrapperRandomContent {
                 }
             }
             'PasswordBox' {
-                $Content.Password = (([char[]](0..200) | Get-Random -Count 10) -join '')
+                $Content.Password = Get-RandomCustomString -Configuration $RandomConfiguration
             }
             'RichTextBox' {
-                Set-RichTextBoxText -RichTextBox $Content -Text ((([char[]](0..200) | Get-Random -Count 10) -join ''))
+                Set-RichTextBoxText -RichTextBox $Content -Text (Get-RandomCustomString -Configuration $RandomConfiguration)
             }
             default {
                 Write-Host "What is this? ($($Content.GetType().Name))" -ForegroundColor Red -BackgroundColor Yellow
@@ -1388,33 +2016,131 @@ function Confirm-ArrayEnableButton {
     $ContentHeaderBorderTitle = Find-Title $ContentHeaderBorder
 
     # If Wrapper is not an Array, Get GrandWrapper
-    if ($ContentHeaderBorderTitle -notlike '*`[]') {
+    $CleanBorderTitle = if ($ContentHeaderBorderTitle) { [System.Text.RegularExpressions.Regex]::Replace($ContentHeaderBorderTitle, '\[.*?\]', '[]') } else { $ContentHeaderBorderTitle }
+    if ($CleanBorderTitle -notlike '*`[]') {
         $GrandWrapper = Get-ParentWrapperBorder -Element $ContentHeaderBorder -HeaderOnly
         if ($GrandWrapper) { $ContentHeaderBorder = $GrandWrapper }
     }
 
-    $ArrayButton = Find-ObjectWhere -Object ([ref]$ContentHeaderBorder) -FindWhere { $_.Name -like "*$DisableEnableButtonNameSuffix" } -DepthMax 1 -DepthWhere { $_.Name -eq $ContentSlotElementName }
-    if (-not $ArrayButton) { return }
-
-    $ItemButtons = Find-ObjectWhere -Object ([ref]$ContentHeaderBorder) -FindWhere { $_.Name -like "*$DisableEnableButtonNameSuffix" -and $_ -ne $ArrayButton }
-    $ItemCount = if ($ItemButtons) { @($ItemButtons).Count } else { 0 }
-
-    if ($ItemCount -eq 0) {
-        Set-DisableEnableButtonVisualState -Button $ArrayButton -IsDisabled $false
+    # If the resolved wrapper is known to not be an array, exit immediately
+    if ($ContentHeaderBorder.Tag -is [hashtable] -and $ContentHeaderBorder.Tag.ContainsKey('IsArray') -and -not $ContentHeaderBorder.Tag.IsArray) {
+        Stop-FunctionMeasurement -FunctionName "Confirm-ArrayEnableButton"
         return
     }
 
-    $DisabledButtons = $ItemButtons | Where-Object { $null -eq $_.Icon }
-    $DisabledCount = if ($DisabledButtons) { @($DisabledButtons).Count } else { 0 }
+    $ArrayButton = if ($ContentHeaderBorder.Tag -is [hashtable] -and $ContentHeaderBorder.Tag.ContainsKey('DisableEnableButton')) {
+        $ContentHeaderBorder.Tag.DisableEnableButton
+    }
+    else {
+        $SearchRoot = Get-WrapperMenu -Wrapper $ContentHeaderBorder
+        $FoundArrayButton = if ($SearchRoot) {
+            Find-ObjectWhere -Object ([ref]$SearchRoot) -FindWhere { $_.Name -like "*$DisableEnableButtonNameSuffix" } -FindMax 1
+        }
+        else {
+            Find-ObjectWhere -Object ([ref]$ContentHeaderBorder) -FindWhere { $_.Name -like "*$DisableEnableButtonNameSuffix" } -DepthMax 1 -DepthWhere { $_.Name -eq $ContentSlotElementName }
+        }
+        if ($ContentHeaderBorder.Tag -is [hashtable]) {
+            $ContentHeaderBorder.Tag.DisableEnableButton = $FoundArrayButton
+        }
+        $FoundArrayButton
+    }
+    if (-not $ArrayButton) {
+        Stop-FunctionMeasurement -FunctionName "Confirm-ArrayEnableButton"
+        return
+    }
 
-    if ($DisabledCount -eq $ItemCount) {
+    $ContentSlot = Get-WrapperContentSlot -Wrapper $ContentHeaderBorder
+    $HasCheckedChildrenViaTag = $false
+    $ItemCount = 0
+    $DisabledCount = 0
+
+    if ($ContentSlot -and $ContentSlot.Children.Count -gt 0) {
+        $ItemCount = $ContentSlot.Children.Count
+        $AllChildrenHaveTags = $true
+        foreach ($Child in @($ContentSlot.Children)) {
+            if ($Child.Tag -is [hashtable] -and $Child.Tag.ContainsKey('IsDisabled')) {
+                if ($Child.Tag.IsDisabled) { $DisabledCount++ }
+            }
+            elseif ($Child.Tag -is [hashtable] -and $Child.Tag.ContainsKey('DisableEnableButton') -and $Child.Tag.DisableEnableButton) {
+                if ($null -eq $Child.Tag.DisableEnableButton.Icon) { $DisabledCount++ }
+            }
+            else {
+                $AllChildrenHaveTags = $false
+                break
+            }
+        }
+        if ($AllChildrenHaveTags) {
+            $HasCheckedChildrenViaTag = $true
+        }
+    }
+
+    if (-not $HasCheckedChildrenViaTag) {
+        $ItemButtons = Find-ObjectWhere -Object ([ref]$ContentHeaderBorder) -FindWhere { $_.Name -like "*$DisableEnableButtonNameSuffix" -and $_ -ne $ArrayButton }
+        $ItemCount = if ($ItemButtons) { @($ItemButtons).Count } else { 0 }
+        $DisabledButtons = $ItemButtons | Where-Object { $null -eq $_.Icon }
+        $DisabledCount = if ($DisabledButtons) { @($DisabledButtons).Count } else { 0 }
+    }
+
+    if ($DisabledCount -gt 0) {
         Set-DisableEnableButtonVisualState -Button $ArrayButton -IsDisabled $true
     }
-    elseif ($DisabledCount -eq 0) {
+    else {
         Set-DisableEnableButtonVisualState -Button $ArrayButton -IsDisabled $false
     }
     Stop-FunctionMeasurement -FunctionName "Confirm-ArrayEnableButton"
 } # function Confirm-ArrayEnableButton
+
+function Update-ArrayHeaderDescription {
+    param(
+        [Parameter(Mandatory)]$Wrapper
+    )
+    Start-FunctionMeasurement -FunctionName 'Update-ArrayHeaderDescription'
+    $Target = Resolve-TargetElement $Wrapper
+    if (-not $Target) { return }
+
+    if ($Target.Name -eq $ContentSlotElementName) {
+        $Target = Get-ParentWrapperBorder -Element $Target -HeaderOnly
+    }
+    if (-not $Target -or $Target.Name -ne $ContentHeaderBorderName) { return }
+
+    $TitleDock = Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $_.Name -eq $ContentHeaderTitleBorderDockName } -FindMax 1
+    if ($TitleDock -is [array]) { $TitleDock = $TitleDock[0] }
+    $DescBlock = if ($TitleDock) {
+        Find-ObjectWhere -Object ([ref]$TitleDock) -FindWhere { $_.Name -eq $ContentHeaderDescriptionValueName } -FindMax 1
+    }
+    else {
+        Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $_.Name -eq $ContentHeaderDescriptionValueName } -FindMax 1
+    }
+    if ($DescBlock -is [array]) { $DescBlock = $DescBlock[0] }
+    if (-not $DescBlock) { return }
+
+    $CurrentText = $DescBlock.Text
+    if (-not ($CurrentText -match '\[.*?\]')) { return }
+
+    if (-not ($Target.Tag -is [hashtable])) { $Target.Tag = @{} }
+    if (-not $Target.Tag.ContainsKey('BaseDescription') -or [string]::IsNullOrWhiteSpace($Target.Tag.BaseDescription)) {
+        $Target.Tag.BaseDescription = [System.Text.RegularExpressions.Regex]::Replace($CurrentText, '\[.*?\]', '')
+    }
+    $BaseDescription = $Target.Tag.BaseDescription
+
+    $ContentSlot = Get-WrapperContentSlot -Wrapper $Target
+    $TotalCount = if ($ContentSlot -and $ContentSlot.Children) { $ContentSlot.Children.Count } else { 0 }
+
+    if ($TotalCount -eq 0) {
+        $DescBlock.Text = "$BaseDescription`[]"
+    }
+    else {
+        $DisabledCount = 0
+        foreach ($Child in @($ContentSlot.Children)) {
+            if ($Child.Tag -is [hashtable] -and $Child.Tag.ContainsKey('IsDisabled') -and $Child.Tag.IsDisabled) {
+                $DisabledCount++
+            }
+        }
+        $EnabledCount = $TotalCount - $DisabledCount
+        $DescBlock.Text = "$BaseDescription`[$EnabledCount/$TotalCount]"
+    }
+    Stop-FunctionMeasurement -FunctionName 'Update-ArrayHeaderDescription'
+} # function Update-ArrayHeaderDescription
 
 function Update-ArrayButtonsState {
     param(
@@ -1432,7 +2158,8 @@ function Update-ArrayButtonsState {
     $IsArrayWrapper = ($Target.Tag -is [hashtable] -and $Target.Tag.ContainsKey('IsArray') -and $Target.Tag.IsArray)
     if (-not $IsArrayWrapper) {
         $TitleText = Find-Title $Target
-        $IsArrayWrapper = ($TitleText -like '*`[]')
+        $CleanTitleText = if ($TitleText) { [System.Text.RegularExpressions.Regex]::Replace($TitleText, '\[.*?\]', '[]') } else { $TitleText }
+        $IsArrayWrapper = ($CleanTitleText -like '*`[]')
     }
     if (-not $IsArrayWrapper) { return }
 
@@ -1445,27 +2172,17 @@ function Update-ArrayButtonsState {
     $Menu = Get-WrapperMenu -Wrapper $Target
     if (-not $Menu) { return }
 
-    Set-MenuButtonsEnabledState -Menu $Menu -Suffixes @($SearchButtonNameSuffix, $QuickSetSaveButtonNameSuffix, $CopyButtonNameSuffix, $CopyAsMenuNameSuffix) -IsEnabled $HasItems
-
-    $ConstructAllButtons = Find-ObjectWhere -Object ([ref]$Menu) -FindWhere { $_.Name -like "*$ConstructButtonNameSuffix" }
-    foreach ($CButton in @($ConstructAllButtons)) {
-        if ($CButton) { $CButton.IsEnabled = $HasItems }
-    }
+    Set-MenuButtonsEnabledState -Menu $Menu -Suffixes @($SearchButtonNameSuffix, $QuickSetSaveButtonNameSuffix, $CopyButtonNameSuffix, $CopyAsMenuNameSuffix, $ConstructButtonNameSuffix) -IsEnabled $HasItems
 
     $LockableBatchSuffixes = @(
-        $RandomValuesButtonNameSuffix
         $ClearButtonNameSuffix
         $DisableEnableButtonNameSuffix
         $DeleteButtonNameSuffix
     )
     Set-MenuButtonsEnabledState -Menu $Menu -Suffixes $LockableBatchSuffixes -IsEnabled ($HasItems -and (-not $IsLocked))
+    Set-MenuButtonsEnabledState -Menu $Menu -Suffixes @($RandomValuesButtonNameSuffix, $AddArrayItemButtonName) -IsEnabled (-not $IsLocked)
     Set-MenuButtonsEnabledState -Menu $Menu -Suffixes @($SortMenuNameSuffix) -IsEnabled (($ItemCount -gt 1) -and (-not $IsLocked))
     Update-WrapperPasteButtonState -Wrapper $Target
-
-    $AddButtons = Find-ObjectWhere -Object ([ref]$Menu) -FindWhere { $_.Name -eq $AddArrayItemButtonName }
-    foreach ($AButton in @($AddButtons)) {
-        if ($AButton) { $AButton.IsEnabled = (-not $IsLocked) }
-    }
 
     if (-not $HasItems) {
         $SearchBar = Resolve-TargetElement (Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $_.Name -like "*$SearchBarNameSuffix" } -DepthMax 1 -DepthWhere { $_.Name -eq $ContentSlotElementName } -FindMax 1)
@@ -1473,6 +2190,8 @@ function Update-ArrayButtonsState {
             Close-SearchBar -ChildElement $SearchBar
         }
     }
+
+    Update-ArrayHeaderDescription -Wrapper $Target
 
     Stop-FunctionMeasurement -FunctionName 'Update-ArrayButtonsState'
 } # function Update-ArrayButtonsState
@@ -1504,6 +2223,7 @@ function Clear-ContentSlotArrayItems {
 
     :DeleteArrayItems foreach ($Child in @($TargetSlot.Children)) {
         if ((Get-IsLocked $Child)) { continue DeleteArrayItems }
+        Detach-UniversalSharedMenu -TargetWrapper $Child
         $TargetSlot.Children.Remove($Child)
     }
     Sync-ArraySlotState -ContentSlot $TargetSlot -ContainerWrapper $ContainerWrapper
@@ -1547,6 +2267,372 @@ function New-CustomMenu {
     Stop-FunctionMeasurement -FunctionName 'New-CustomMenu'
 } # function New-CustomMenu
 
+function New-MenuTriggerButton {
+    param(
+        [Parameter(Mandatory = $true)][string]$ActionFrom
+    )
+    Start-FunctionMeasurement -FunctionName 'New-MenuTriggerButton'
+    $TriggerButton = New-BaseButton @{
+        Name                       = "$ActionFrom_$UniversalMenuTriggerButtonName"
+        Content                    = $ButtonMenuHeader
+        ToolTip                    = $ButtonMenuToolTip
+        Background                 = 'Transparent'
+        BorderBrush                = 'Transparent'
+        BorderThickness            = 0
+        Cursor                     = 'Hand'
+        VerticalAlignment          = 'Center'
+        HorizontalAlignment        = 'Right'
+        VerticalContentAlignment   = 'Center'
+        HorizontalContentAlignment = 'Center'
+        Width                      = 20
+        Height                     = 18
+        Padding                    = 0
+        Margin                     = 0
+        FontSize                   = 12
+        Foreground                 = 'Black'
+        Focusable                  = $true
+    }
+    $TriggerButton.Add_MouseEnter({
+            param($s, $e)
+            $s.Background = [System.Windows.Media.SolidColorBrush]::new([System.Windows.Media.Color]::FromArgb(0x3D, 0x7E, 0xBA, 0xED))
+        })
+    $TriggerButton.Add_MouseLeave({
+            param($s, $e)
+            $s.Background = [System.Windows.Media.Brushes]::Transparent
+        })
+    $TriggerButton.Add_Click({
+            param($s, $e)
+            Invoke-UniversalMenuTriggerClick -TriggerButton $s
+        })
+    $ReturnValue = $TriggerButton
+    Stop-FunctionMeasurement -FunctionName 'New-MenuTriggerButton'
+    return $ReturnValue
+} # function New-MenuTriggerButton
+
+function Get-UniversalSharedMenu {
+    Start-FunctionMeasurement -FunctionName 'Get-UniversalSharedMenu'
+    if ($script:UniversalSharedMenu) {
+        Stop-FunctionMeasurement -FunctionName 'Get-UniversalSharedMenu'
+        return $script:UniversalSharedMenu
+    }
+
+    $Menu = New-BaseMenu @{
+        Name                = $MenuName
+        Background          = 'Transparent'
+        VerticalAlignment   = 'Center'
+        HorizontalAlignment = 'Right'
+        Cursor              = 'Hand'
+        Width               = 20
+        Height              = 18
+        Padding             = 0
+        Margin              = 0
+        BorderThickness     = 0
+    }
+
+    $MenuItem = New-BaseMenuItem @{
+        Name                       = $ButtonMenuName
+        Header                     = $ButtonMenuHeader
+        ToolTip                    = $ButtonMenuToolTip
+        Visibility                 = 'Visible'
+        VerticalAlignment          = 'Center'
+        HorizontalAlignment        = 'Center'
+        VerticalContentAlignment   = 'Center'
+        HorizontalContentAlignment = 'Center'
+        Width                      = 20
+        Height                     = 18
+        Padding                    = '7,0,7,0'
+        Margin                     = 0
+        FontSize                   = 12
+    }
+
+    $ActionFrom = 'Universal'
+    $Buttons = Get-StandardActionButtons `
+        -ActionFrom $ActionFrom `
+        -IsBatch `
+        -IsConstruct `
+        -IncludeSearch `
+        -IncludeArrayItemActions
+
+    $ButtonsByName = @{}
+    foreach ($Btn in $Buttons) {
+        if ($Btn) {
+            [void]$MenuItem.Items.Add($Btn)
+            if ($Btn.Name) {
+                $ButtonsByName[$Btn.Name] = $Btn
+            }
+        }
+    }
+
+    $MenuItem.Add_SubmenuOpened({
+            param($s, $e)
+            if ($e.Source -ne $s) { return }
+            if ($script:UniversalSharedMenu -and $script:UniversalSharedMenu.Tag -is [hashtable] -and $script:UniversalSharedMenu.Tag.ActiveWrapper) {
+                $ActiveWrapper = $script:UniversalSharedMenu.Tag.ActiveWrapper
+                Update-WrapperPasteButtonState -Wrapper $ActiveWrapper
+            }
+        })
+
+    Add-BaseMenuChild ([ref]$Menu) ([ref]$MenuItem)
+    $Menu.Tag = @{
+        ActiveWrapper       = $null
+        ActiveTriggerButton = $null
+        ButtonsByName       = $ButtonsByName
+    }
+
+    $script:UniversalSharedMenu = $Menu
+    Stop-FunctionMeasurement -FunctionName 'Get-UniversalSharedMenu'
+    return $script:UniversalSharedMenu
+} # function Get-UniversalSharedMenu
+
+function Update-UniversalMenuActionsVisibility {
+    param(
+        [Parameter(Mandatory = $true)]$TargetWrapper
+    )
+    Start-FunctionMeasurement -FunctionName 'Update-UniversalMenuActionsVisibility'
+    $SharedMenu = Get-UniversalSharedMenu
+    $ButtonMenuItem = Find-ObjectWhere -Object ([ref]$SharedMenu) -FindWhere { $_.Name -eq $ButtonMenuName } -FindMax 1
+    if (-not $ButtonMenuItem) {
+        Stop-FunctionMeasurement -FunctionName 'Update-UniversalMenuActionsVisibility'
+        return
+    }
+
+    $ResolvedWrapper = Resolve-TargetElement $TargetWrapper
+    $IsHeader = ($ResolvedWrapper.Name -eq $ContentHeaderBorderName)
+    $IsArrayItem = ($ResolvedWrapper.Tag -is [hashtable] -and $ResolvedWrapper.Tag.ContainsKey('ArrayItem') -and $ResolvedWrapper.Tag.ArrayItem)
+    $IsBatch = ($IsHeader -and $ResolvedWrapper.Tag -is [hashtable] -and $ResolvedWrapper.Tag.ContainsKey('TargetType') -and $ResolvedWrapper.Tag.TargetType)
+
+    $QuickSetItem = Find-ObjectWhere -Object ([ref]$ButtonMenuItem) -FindWhere { $_.Name -like "*QuickSet*" } -FindMax 1
+    if ($QuickSetItem) {
+        Update-QuickSetSubMenu -QuickSetMenuItem $QuickSetItem -Wrapper $ResolvedWrapper
+    }
+
+    $PreviousExtraItems = @($ButtonMenuItem.Items | Where-Object { $_ -and ($_.Tag -is [hashtable] -and $_.Tag.ContainsKey('IsDynamicExtraItem')) })
+    foreach ($OldExtra in $PreviousExtraItems) {
+        [void]$ButtonMenuItem.Items.Remove($OldExtra)
+    }
+
+    if ($ResolvedWrapper.Tag -is [hashtable] -and $ResolvedWrapper.Tag.ContainsKey('ExtraMenuItems') -and $ResolvedWrapper.Tag.ExtraMenuItems) {
+        $InsertIndex = 0
+        foreach ($ExtraItem in $ResolvedWrapper.Tag.ExtraMenuItems) {
+            if ($ExtraItem) {
+                if (-not ($ExtraItem.Tag -is [hashtable])) { $ExtraItem.Tag = @{} }
+                $ExtraItem.Tag.IsDynamicExtraItem = $true
+                $ExtraItem.Visibility = 'Visible'
+                $ButtonMenuItem.Items.Insert($InsertIndex, $ExtraItem) | Out-Null
+                $InsertIndex++
+            }
+        }
+    }
+
+    $ContentSlot = Get-WrapperContentSlot -Wrapper $ResolvedWrapper
+    $ItemCount = if ($ContentSlot -and $ContentSlot.Children) { $ContentSlot.Children.Count } else { 0 }
+    $HasItems = ($ItemCount -gt 0)
+    $IsLocked = Get-IsElementLockedSelf $ResolvedWrapper
+
+    foreach ($Item in $ButtonMenuItem.Items) {
+        if (-not $Item) { continue }
+        $Name = $Item.Name
+
+        if ($Name -like "*$DeleteButtonNameSuffix*") {
+            $Item.Visibility = if ($IsArrayItem -or $IsBatch) { 'Visible' } else { 'Collapsed' }
+            if ($IsBatch) {
+                $Item.Header = "$DeleteButtonHeader All"
+                $Item.ToolTip = $DeleteButtonAllToolTip
+                $Item.IsEnabled = ($HasItems -and (-not $IsLocked))
+            }
+            else {
+                $Item.Header = $DeleteButtonHeader
+                $Item.ToolTip = $DeleteButtonToolTip
+                $Item.IsEnabled = (-not $IsLocked)
+            }
+        }
+        elseif ($Name -like "*$DisableEnableButtonNameSuffix*") {
+            $Item.Visibility = if ($IsArrayItem -or $IsBatch) { 'Visible' } else { 'Collapsed' }
+            $IsDisabled = ($ResolvedWrapper.Tag -is [hashtable] -and $ResolvedWrapper.Tag.ContainsKey('IsDisabled') -and $ResolvedWrapper.Tag.IsDisabled)
+            if ($IsBatch) {
+                $Item.Header = if ($IsDisabled) { 'Enable All' } else { 'Disable All' }
+                $Item.Icon = '❌'
+                $Item.IsEnabled = ($HasItems -and (-not $IsLocked))
+                $BaseTip = if ($IsDisabled) { $DisableEnableButtonAllToolTipDisabled } else { $DisableEnableButtonAllToolTipEnabled }
+                if ($ContentSlot -and $ContentSlot.Children.Count -gt 0) {
+                    $TotalCount = $ContentSlot.Children.Count
+                    $LockedCount = 0
+                    $DisabledChildCount = 0
+                    foreach ($Child in @($ContentSlot.Children)) {
+                        if (Get-IsLocked $Child) { $LockedCount++ }
+                        if ($Child.Tag -is [hashtable] -and $Child.Tag.ContainsKey('IsDisabled') -and $Child.Tag.IsDisabled) { $DisabledChildCount++ }
+                    }
+                    $EnabledChildCount = $TotalCount - $DisabledChildCount
+                    $Item.ToolTip = "$BaseTip`nItems: $TotalCount total ($EnabledChildCount enabled, $DisabledChildCount disabled, $LockedCount locked)"
+                }
+                else {
+                    $Item.ToolTip = $BaseTip
+                }
+            }
+            else {
+                $Item.Header = if ($IsDisabled) { 'Enable' } else { 'Disable' }
+                $Item.Icon = '❌'
+                $Item.ToolTip = if ($IsDisabled) { $DisableEnableButtonToolTipDisabled } else { $DisableEnableButtonToolTipEnabled }
+                $Item.IsEnabled = (-not $IsLocked)
+            }
+        }
+        elseif ($Name -like "*$SearchButtonNameSuffix*") {
+            $Item.Visibility = if ($IsHeader) { 'Visible' } else { 'Collapsed' }
+            $Item.IsEnabled = if ($IsBatch) { $HasItems } else { $true }
+        }
+        elseif ($Name -like "*$CopyButtonNameSuffix*" -or $Name -like "*$CopyAsMenuNameSuffix*") {
+            if ($IsBatch) {
+                $Item.IsEnabled = $HasItems
+            }
+        }
+        elseif ($Name -like "*$ConstructButtonNameSuffix*") {
+            if ($IsBatch) {
+                $Item.IsEnabled = $HasItems
+            }
+        }
+        elseif ($Name -like "*$SortMenuNameSuffix*") {
+            $Item.Visibility = if ($IsBatch) { 'Visible' } else { 'Collapsed' }
+            $Item.IsEnabled = (($ItemCount -gt 1) -and (-not $IsLocked))
+        }
+        elseif ($Name -like "*$RandomValuesButtonNameSuffix*") {
+            $Item.Visibility = 'Visible'
+            $TargetHeaderText = if ($IsBatch) { "$($RandomValuesButtonHeader + 's')" } else { $RandomValuesButtonHeader }
+            $TargetToolTip = if ($IsBatch) { $RandomValuesButtonAllToolTip } else { $RandomValuesButtonToolTip }
+
+            $Item.Header = $TargetHeaderText
+            $Item.ToolTip = $TargetToolTip
+            $Item.IsEnabled = (-not $IsLocked)
+        }
+        elseif ($Name -like "*$ClearButtonNameSuffix*") {
+            $Item.Visibility = 'Visible'
+            if ($IsBatch) {
+                $Item.Header = "$($ClearButtonHeader + 's')"
+                $Item.ToolTip = $ClearButtonAllToolTip
+                $Item.IsEnabled = ($HasItems -and (-not $IsLocked))
+            }
+            else {
+                $Item.Header = $ClearButtonHeader
+                $Item.ToolTip = $ClearButtonToolTip
+                $Item.IsEnabled = (-not $IsLocked)
+            }
+        }
+        elseif ($Name -like "*$LockUnlockButtonName*") {
+            $Item.Visibility = 'Visible'
+            $IsLocked = ($ResolvedWrapper.Tag -is [hashtable] -and $ResolvedWrapper.Tag.ContainsKey('IsLocked') -and $ResolvedWrapper.Tag.IsLocked)
+            $Item.Header = if ($IsLocked) { 'Unlock' } else { 'Lock' }
+            $Item.Icon = if ($IsLocked) { '🔓' } else { '🔒' }
+            $Item.ToolTip = if ($IsLocked) { $LockUnlockButtonItemToolTipLocked } else { $LockUnlockButtonItemToolTipUnlocked }
+        }
+    }
+
+    Update-WrapperPasteButtonState -Wrapper $ResolvedWrapper
+
+    Stop-FunctionMeasurement -FunctionName 'Update-UniversalMenuActionsVisibility'
+} # function Update-UniversalMenuActionsVisibility
+
+function Invoke-UniversalMenuTriggerClick {
+    param(
+        [Parameter(Mandatory = $true)]$TriggerButton
+    )
+    Start-FunctionMeasurement -FunctionName 'Invoke-UniversalMenuTriggerClick'
+    $TargetButton = Resolve-TargetElement $TriggerButton
+    if (-not $TargetButton) {
+        Stop-FunctionMeasurement -FunctionName 'Invoke-UniversalMenuTriggerClick'
+        return
+    }
+
+    $TargetWrapper = Get-ParentWrapperBorder -Element $TargetButton
+    if (-not $TargetWrapper) {
+        Stop-FunctionMeasurement -FunctionName 'Invoke-UniversalMenuTriggerClick'
+        return
+    }
+
+    $SharedMenu = Get-UniversalSharedMenu
+
+    if ($SharedMenu.Tag -is [hashtable] -and $SharedMenu.Tag.ActiveWrapper -eq $TargetWrapper) {
+        $ButtonMenuItem = Find-ObjectWhere -Object ([ref]$SharedMenu) -FindWhere { $_.Name -eq $ButtonMenuName } -FindMax 1
+        if ($ButtonMenuItem) {
+            $ButtonMenuItem.IsSubmenuOpen = -not $ButtonMenuItem.IsSubmenuOpen
+        }
+        Stop-FunctionMeasurement -FunctionName 'Invoke-UniversalMenuTriggerClick'
+        return
+    }
+
+    if ($SharedMenu.Parent) {
+        $PreviousParent = $SharedMenu.Parent
+        $PreviousParent.Children.Remove($SharedMenu)
+        if ($SharedMenu.Tag -is [hashtable] -and $SharedMenu.Tag.ActiveTriggerButton) {
+            $SharedMenu.Tag.ActiveTriggerButton.Visibility = 'Visible'
+        }
+    }
+
+    $TargetDock = if ($TargetWrapper.Name -eq $ContentHeaderBorderName) {
+        Find-ObjectWhere -Object ([ref]$TargetWrapper) -FindWhere { $_.Name -eq $ContentHeaderTitleBorderDockName } -FindMax 1
+    }
+    else {
+        Find-ObjectWhere -Object ([ref]$TargetWrapper) -FindWhere { $_.Name -eq $ContentBorderDockName } -FindMax 1
+    }
+
+    if ($TargetDock) {
+        $ButtonIndex = $TargetDock.Children.IndexOf($TargetButton)
+        if ($ButtonIndex -ge 0) {
+            $TargetDock.Children.Insert($ButtonIndex, $SharedMenu)
+        }
+        else {
+            $TargetDock.Children.Insert(0, $SharedMenu)
+        }
+        [System.Windows.Controls.DockPanel]::SetDock($SharedMenu, 'Right')
+    }
+
+    $TargetButton.Visibility = 'Collapsed'
+
+    $SharedMenu.Tag.ActiveWrapper = $TargetWrapper
+    $SharedMenu.Tag.ActiveTriggerButton = $TargetButton
+    $SharedMenu.DataContext = $TargetWrapper
+
+    Update-UniversalMenuActionsVisibility -TargetWrapper $TargetWrapper
+
+    $ButtonMenuItem = Find-ObjectWhere -Object ([ref]$SharedMenu) -FindWhere { $_.Name -eq $ButtonMenuName } -FindMax 1
+    if ($ButtonMenuItem) {
+        $ButtonMenuItem.IsSubmenuOpen = $true
+    }
+
+    Stop-FunctionMeasurement -FunctionName 'Invoke-UniversalMenuTriggerClick'
+} # function Invoke-UniversalMenuTriggerClick
+
+function Detach-UniversalSharedMenu {
+    param(
+        $TargetWrapper = $null
+    )
+    Start-FunctionMeasurement -FunctionName 'Detach-UniversalSharedMenu'
+    if (-not $script:UniversalSharedMenu) {
+        Stop-FunctionMeasurement -FunctionName 'Detach-UniversalSharedMenu'
+        return
+    }
+
+    if ($TargetWrapper -and $script:UniversalSharedMenu.Tag -is [hashtable]) {
+        if ($script:UniversalSharedMenu.Tag.ActiveWrapper -ne $TargetWrapper) {
+            Stop-FunctionMeasurement -FunctionName 'Detach-UniversalSharedMenu'
+            return
+        }
+    }
+
+    if ($script:UniversalSharedMenu.Parent) {
+        $Parent = $script:UniversalSharedMenu.Parent
+        $Parent.Children.Remove($script:UniversalSharedMenu)
+    }
+
+    if ($script:UniversalSharedMenu.Tag -is [hashtable]) {
+        if ($script:UniversalSharedMenu.Tag.ActiveTriggerButton) {
+            $script:UniversalSharedMenu.Tag.ActiveTriggerButton.Visibility = 'Visible'
+        }
+        $script:UniversalSharedMenu.Tag.ActiveWrapper = $null
+        $script:UniversalSharedMenu.Tag.ActiveTriggerButton = $null
+    }
+
+    Stop-FunctionMeasurement -FunctionName 'Detach-UniversalSharedMenu'
+} # function Detach-UniversalSharedMenu
+
 function New-ContentHeader {
     param(
         [ValidateSet('Header', 'MiniHeader')]
@@ -1573,6 +2659,8 @@ function New-ContentHeader {
         ActiveQuickSet = $null
         OriginalTitle  = if ($ArrayItemHeader) { $Title } else { $null }
         ArrayItem      = $ArrayItemHeader
+        IsDisabled     = $false
+        IsLocked       = $false
     }
 
     $ContentHeaderBorderStack = New-BaseStackPanel @{
@@ -1589,6 +2677,20 @@ function New-ContentHeader {
         BorderThickness = '0,0,0,2'
         BorderBrush     = 'Black'
     }
+    # Double-click title bar toggles minimize/maximize
+    $ContentHeaderTitleBorder.Add_MouseLeftButtonDown({
+            param($s, $e)
+            if ($e.ClickCount -eq 2) {
+                $ParentBorder = Get-ParentWrapperBorder -Element $s -HeaderOnly
+                if ($ParentBorder) {
+                    $MinMaxButton = Get-WrapperOwnActionButton -Element $ParentBorder -Name $MinMaxButtonName
+                    if ($MinMaxButton) {
+                        Invoke-MinMaxButtonClick $MinMaxButton $e
+                        $e.Handled = $true
+                    }
+                }
+            }
+        })
     Add-BaseStackPanelChild ([ref]$ContentHeaderBorderStack) ([ref]$ContentHeaderTitleBorder)
 
     $ContentHeaderTitleBorderDock = New-BaseDockPanel @{
@@ -1642,11 +2744,18 @@ function New-ContentHeader {
 
     #region Buttons
 
-    $ContentHeaderButtonMenu = New-CustomMenu
+    $ContentHeaderButtonMenu = New-BaseMenu @{
+        Name                = $MenuName
+        Background          = 'Transparent'
+        VerticalAlignment   = 'Center'
+        HorizontalAlignment = 'Right'
+        Cursor              = 'Hand'
+    }
 
     $MinMaxButton = New-MinMaxButton
     Add-BaseMenuChild ([ref]$ContentHeaderButtonMenu) ([ref]$MinMaxButton) 0
-
+    $TriggerButton = New-MenuTriggerButton -ActionFrom $ContentHeaderBorderName
+    Add-BaseDockPanelChild ([ref]$ContentHeaderTitleBorderDock) ([ref]$TriggerButton) 'Right'
     Add-BaseDockPanelChild ([ref]$ContentHeaderTitleBorderDock) ([ref]$ContentHeaderButtonMenu) 'Right'
 
     #endregion Buttons
@@ -1662,6 +2771,7 @@ function New-ContentHeader {
         Background = $ColorSequence[ ($Depth + 1) % $ColorSequence.Count ]
     }
     $ContentHeaderBorderStack.AddChild($ContentSlot)
+    $ContentHeaderBorder.Tag.ContentSlot = $ContentSlot
 
     # MiniHeader Setting Differences
     if ($WrapperType -eq 'MiniHeader') {
@@ -1797,7 +2907,9 @@ function New-TypeContent {
         $Top.Tag.IsArray = [bool]$Type.IsArray
         $Top.Tag.IsConstruct = ($null -ne $Content -and $Content.Name -eq $ConstructName)
         $Top.Tag.Construct = if ($Top.Tag.IsConstruct) { $Content } else { $null }
-        $Top.Tag.ContentSlot = Find-ObjectWhere -Object ([ref]$Top) -FindWhere { $_.Name -eq $ContentSlotElementName } -DepthMax 0 -DepthWhere { @($ContentHeaderBorderName, $ContentBorderName) -contains $_.Name } -FindMax 1
+        if (-not ($Top.Tag.ContainsKey('ContentSlot') -and $Top.Tag.ContentSlot)) {
+            $Top.Tag.ContentSlot = Find-ObjectWhere -Object ([ref]$Top) -FindWhere { $_.Name -eq $ContentSlotElementName } -DepthMax 0 -DepthWhere { @($ContentHeaderBorderName, $ContentBorderName) -contains $_.Name } -FindMax 1
+        }
         if (-not $Top.Tag.ContainsKey('AddButton')) { $Top.Tag.AddButton = $null }
         $Top.Tag.Content = if ($null -ne $Content -and $Content.Name -eq $ContentElementName) { $Content } else { $null }
         $Top.Tag.CustomDateTimePicker = if ($null -ne $Content -and $Content.Name -eq $CustomDateTimePickerName) { $Content } else { $null }
@@ -1862,6 +2974,8 @@ function New-ContentWrapper {
             Type           = $Type
             ActiveQuickSet = $null
             ArrayItem      = $ArrayItem
+            IsDisabled     = $false
+            IsLocked       = $false
         }
 
         $BorderDock = New-BaseDockPanel @{
@@ -1879,6 +2993,7 @@ function New-ContentWrapper {
         $Border.Tag.ContentSlot = $BorderDockStack
         $Border.Tag.Depth = $Depth
 
+        Stop-FunctionMeasurement -FunctionName 'New-ContentWrapper'
         return $Border
     }
 
@@ -1923,9 +3038,9 @@ function Add-ArrayFunctionality {
         }
         elseif ($WrapperType -eq 'Border') {
             $ContentBorderDock = Find-ObjectWhere -Object $Wrapper -FindWhere { $_.Name -eq $ContentBorderDockName } -FindMax 1
-            $ButtonMenu = New-CustomMenu
-            $ContentBorderDock.Children.Insert(0, $ButtonMenu)
-            [System.Windows.Controls.DockPanel]::SetDock($ButtonMenu, 'Right')
+            $TriggerButton = New-MenuTriggerButton -ActionFrom $Wrapper.Value.Name
+            $ContentBorderDock.Children.Insert(0, $TriggerButton)
+            [System.Windows.Controls.DockPanel]::SetDock($TriggerButton, 'Right')
         }
         else {
             Write-Host '{Add-ArrayFunctionality} $_' -ForegroundColor Red
@@ -1935,6 +3050,8 @@ function Add-ArrayFunctionality {
 
         $DragHandle = New-DragHandle -WrapperName $Wrapper.Value.Name
         $IndexBlock = New-IndexBox -WrapperName $Wrapper.Value.Name -Index ($Index + 1)
+        if (-not ($Wrapper.Value.Tag -is [hashtable])) { $Wrapper.Value.Tag = @{} }
+        $Wrapper.Value.Tag.IndexBox = $IndexBlock
         $ArrayItemStack = New-BaseStackPanel @{
             Name                = $ArrayItemStackName
             Orientation         = 'Horizontal'
@@ -1949,8 +3066,23 @@ function Add-ArrayFunctionality {
 
         #region Array Item Buttons
 
-        $HasHeaderMenu = ($WrapperType -ne 'Border' -and $WrapperType -ne 'None')
-        Set-WrapperActionButtonsLazy -Wrapper $Wrapper -ActionFrom $Wrapper.Value.Name -IncludeArrayItemActions -IncludeSearch:$HasHeaderMenu -IsConstruct:$HasHeaderMenu
+        # Header vs Border configuration
+        if ($WrapperType -eq 'Border') {
+            if (-not ($Wrapper.Value.Tag -is [hashtable])) { $Wrapper.Value.Tag = @{} }
+            $Wrapper.Value.Tag.ActionButtonsConfiguration = @{
+                ActionFrom              = $Wrapper.Value.Name
+                IsBatch                 = $false
+                IsConstruct             = $false
+                IncludeSearch           = $false
+                IncludeArrayItemActions = $true
+                TargetType              = $null
+            }
+            $Wrapper.Value.Tag.ActionButtonsPopulated = $false
+        }
+        else {
+            $HasHeaderMenu = ($WrapperType -ne 'None')
+            Set-WrapperActionButtonsLazy -Wrapper $Wrapper -ActionFrom $Wrapper.Value.Name -IncludeArrayItemActions -IncludeSearch:$HasHeaderMenu -IsConstruct:$HasHeaderMenu
+        }
 
         #endregion Array Item Buttons
     }
@@ -2023,7 +3155,10 @@ function New-QuickSetModalDialog {
         [Parameter(Mandatory = $true)]
         [System.Windows.FrameworkElement[]]$ContentControls,
         [string]$AffirmativeButtonText = 'OK',
+        [string]$AlternativeButtonText = $null,
         [string]$NegativeButtonText = 'Cancel',
+        [string]$AuxiliaryButtonText = $null,
+        [scriptblock]$AuxiliaryResultProvider = $null,
         [scriptblock]$ResultProvider,
         [scriptblock]$OnLoadedCallback
     )
@@ -2065,9 +3200,26 @@ function New-QuickSetModalDialog {
     [System.Windows.Controls.DockPanel]::SetDock($ButtonStack, 'Bottom')
     $Dock.Children.Add($ButtonStack) | Out-Null
 
+    if (-not [string]::IsNullOrWhiteSpace($AuxiliaryButtonText)) {
+        $AuxiliaryButtonWidth = if ($AuxiliaryButtonText.Length -gt 8) { 100 } else { 70 }
+        $AuxiliaryButton = New-BaseButton @{
+            Content         = $AuxiliaryButtonText
+            Width           = $AuxiliaryButtonWidth
+            Height          = 26
+            Margin          = '0,0,8,0'
+            Background      = '#504368'
+            Foreground      = '#EDEAFA'
+            BorderBrush     = '#8879A1'
+            BorderThickness = 1
+            Cursor          = 'Hand'
+        }
+        $ButtonStack.Children.Add($AuxiliaryButton) | Out-Null
+    }
+
+    $AffirmativeButtonWidth = if ($AffirmativeButtonText.Length -gt 8) { 90 } else { 70 }
     $AffirmativeButton = New-BaseButton @{
         Content         = $AffirmativeButtonText
-        Width           = 70
+        Width           = $AffirmativeButtonWidth
         Height          = 26
         Margin          = '0,0,8,0'
         Background      = '#504368'
@@ -2079,9 +3231,26 @@ function New-QuickSetModalDialog {
     }
     $ButtonStack.Children.Add($AffirmativeButton) | Out-Null
 
+    if (-not [string]::IsNullOrWhiteSpace($AlternativeButtonText)) {
+        $AlternativeButtonWidth = if ($AlternativeButtonText.Length -gt 8) { 90 } else { 70 }
+        $AlternativeButton = New-BaseButton @{
+            Content         = $AlternativeButtonText
+            Width           = $AlternativeButtonWidth
+            Height          = 26
+            Margin          = '0,0,8,0'
+            Background      = '#504368'
+            Foreground      = '#EDEAFA'
+            BorderBrush     = '#8879A1'
+            BorderThickness = 1
+            Cursor          = 'Hand'
+        }
+        $ButtonStack.Children.Add($AlternativeButton) | Out-Null
+    }
+
+    $NegativeButtonWidth = if ($NegativeButtonText.Length -gt 8) { 90 } else { 70 }
     $NegativeButton = New-BaseButton @{
         Content         = $NegativeButtonText
-        Width           = 70
+        Width           = $NegativeButtonWidth
         Height          = 26
         Background      = 'Transparent'
         Foreground      = '#EDEAFA'
@@ -2098,9 +3267,29 @@ function New-QuickSetModalDialog {
 
     $DialogResultContainer = [PSCustomObject]@{ Value = $null }
 
+    if (-not [string]::IsNullOrWhiteSpace($AuxiliaryButtonText)) {
+        $AuxiliaryButton.Add_Click({
+                if ($AuxiliaryResultProvider) {
+                    $ResultValue = & $AuxiliaryResultProvider
+                    if ($null -eq $ResultValue) { return }
+                    $DialogResultContainer.Value = $ResultValue
+                }
+                else {
+                    $DialogResultContainer.Value = 'Auxiliary'
+                }
+                $Dialog.DialogResult = $true
+                $Dialog.Close()
+            })
+    }
+
     $AffirmativeButton.Add_Click({
-            if ($ResultProvider) {
-                $DialogResultContainer.Value = & $ResultProvider
+            if ($AlternativeButtonText) {
+                $DialogResultContainer.Value = 'Save'
+            }
+            elseif ($ResultProvider) {
+                $ResultValue = & $ResultProvider
+                if ($null -eq $ResultValue) { return }
+                $DialogResultContainer.Value = $ResultValue
             }
             else {
                 $DialogResultContainer.Value = $true
@@ -2109,8 +3298,16 @@ function New-QuickSetModalDialog {
             $Dialog.Close()
         })
 
+    if (-not [string]::IsNullOrWhiteSpace($AlternativeButtonText)) {
+        $AlternativeButton.Add_Click({
+                $DialogResultContainer.Value = 'Discard'
+                $Dialog.DialogResult = $false
+                $Dialog.Close()
+            })
+    }
+
     $NegativeButton.Add_Click({
-            $DialogResultContainer.Value = if ($AffirmativeButtonText -eq 'Yes') { $false } else { $null }
+            $DialogResultContainer.Value = if ($AlternativeButtonText) { 'Cancel' } elseif ($AffirmativeButtonText -eq 'Yes') { $false } else { $null }
             $Dialog.DialogResult = $false
             $Dialog.Close()
         })
@@ -2200,6 +3397,784 @@ function Show-QuickSetConfirmDialog {
     return $false
 } # function Show-QuickSetConfirmDialog
 
+function Show-QuickSetSavePromptDialog {
+    param(
+        [string]$Title = 'QuickSet - Save Changes',
+        [string]$Message = 'Do you want to save changes before closing?'
+    )
+    Start-FunctionMeasurement -FunctionName "Show-QuickSetSavePromptDialog"
+
+    $MsgBlock = New-BaseTextBlock @{
+        Text              = $Message
+        Foreground        = '#EDEAFA'
+        FontSize          = 11
+        TextWrapping      = 'Wrap'
+        VerticalAlignment = 'Center'
+    }
+
+    $Result = New-QuickSetModalDialog `
+        -Title $Title `
+        -Width 420 `
+        -Height 150 `
+        -ContentControls @($MsgBlock) `
+        -AffirmativeButtonText 'Save' `
+        -AlternativeButtonText 'Do Not Save' `
+        -NegativeButtonText 'Cancel'
+
+    if ($null -eq $Result) {
+        $Result = 'Cancel'
+    }
+
+    Stop-FunctionMeasurement -FunctionName "Show-QuickSetSavePromptDialog"
+    return $Result
+} # function Show-QuickSetSavePromptDialog
+
+function Show-RandomValuesConfigurationDialog {
+    param(
+        $Wrapper = $null
+    )
+    Start-FunctionMeasurement -FunctionName 'Show-RandomValuesConfigurationDialog'
+    $TargetWrapper = if ($Wrapper) { Resolve-TargetElement $Wrapper } else { $null }
+    $CurrentConfiguration = Get-RandomValuesConfiguration -Wrapper $TargetWrapper
+    $CurrentMode = if ($CurrentConfiguration.ContainsKey('GenerationMode') -and $CurrentConfiguration.GenerationMode -eq 'RegularExpression') { 'RegularExpression' } else { 'CharacterSets' }
+    $CurrentRegularExpressionPattern = if ($CurrentConfiguration.ContainsKey('RegularExpressionPattern') -and -not [string]::IsNullOrWhiteSpace($CurrentConfiguration.RegularExpressionPattern)) { [string]$CurrentConfiguration.RegularExpressionPattern } else { '\(\d{3}\) \d{3}-\d{4}' }
+
+    $MainStackPanel = New-BaseStackPanel @{
+        Orientation = 'Vertical'
+        Margin      = 5
+    }
+
+    # Mode Selection (RadioButtons)
+    $ModeDock = New-BaseDockPanel @{
+        LastChildFill = $true
+        Margin        = '0,0,0,8'
+    }
+    $ModeLabel = New-BaseTextBlock @{
+        Text              = 'Mode: '
+        Foreground        = '#EDEAFA'
+        FontSize          = 11
+        FontWeight        = 'Bold'
+        VerticalAlignment = 'Center'
+        Width             = 50
+    }
+    [System.Windows.Controls.DockPanel]::SetDock($ModeLabel, 'Left')
+    $ModeDock.Children.Add($ModeLabel) | Out-Null
+
+    $ModeRadioStack = New-BaseStackPanel @{
+        Orientation       = 'Horizontal'
+        VerticalAlignment = 'Center'
+    }
+    $ModeCharacterSetsRadioButton = New-BaseRadioButton @{
+        Content           = 'Character Sets'
+        GroupName         = 'GenerationModeGroup'
+        IsChecked         = ($CurrentMode -eq 'CharacterSets')
+        FontSize          = 11
+        Margin            = '0,0,20,0'
+        VerticalAlignment = 'Center'
+    }
+    $ModeRadioStack.Children.Add($ModeCharacterSetsRadioButton) | Out-Null
+
+    $ModeRegularExpressionRadioButton = New-BaseRadioButton @{
+        Content           = 'Regular Expression'
+        GroupName         = 'GenerationModeGroup'
+        IsChecked         = ($CurrentMode -eq 'RegularExpression')
+        FontSize          = 11
+        VerticalAlignment = 'Center'
+    }
+    $ModeRadioStack.Children.Add($ModeRegularExpressionRadioButton) | Out-Null
+    $ModeDock.Children.Add($ModeRadioStack) | Out-Null
+    $MainStackPanel.Children.Add($ModeDock) | Out-Null
+
+    # Character Sets Section Container
+    $CharacterSetContainer = New-BaseStackPanel @{
+        Orientation = 'Vertical'
+        Visibility  = if ($CurrentMode -eq 'CharacterSets') { 'Visible' } else { 'Collapsed' }
+    }
+
+    # Length row
+    $LengthDock = New-BaseDockPanel @{
+        LastChildFill = $true
+        Margin        = '0,0,0,8'
+    }
+    $LengthLabel = New-BaseTextBlock @{
+        Text              = 'Length (characters): '
+        Foreground        = '#EDEAFA'
+        FontSize          = 11
+        VerticalAlignment = 'Center'
+        Width             = 140
+    }
+    [System.Windows.Controls.DockPanel]::SetDock($LengthLabel, 'Left')
+    $LengthDock.Children.Add($LengthLabel) | Out-Null
+
+    $LengthTextBox = New-BaseTextBox @{
+        Text              = $CurrentConfiguration.Length.ToString()
+        Background        = '#3D3452'
+        Foreground        = '#EDEAFA'
+        BorderBrush       = '#7A6E94'
+        BorderThickness   = 1
+        FontSize          = 11
+        Padding           = '3'
+        VerticalAlignment = 'Center'
+    }
+    $LengthDock.Children.Add($LengthTextBox) | Out-Null
+    $CharacterSetContainer.Children.Add($LengthDock) | Out-Null
+
+    # Character Types Header
+    $TypesHeaderDock = New-BaseDockPanel @{
+        LastChildFill = $true
+        Margin        = '0,4,0,4'
+    }
+
+    $TypesHeaderLabel = New-BaseTextBlock @{
+        Text              = 'Character Types:'
+        Foreground        = '#EDEAFA'
+        FontSize          = 11
+        FontWeight        = 'Bold'
+        VerticalAlignment = 'Center'
+    }
+    $TypesHeaderDock.Children.Add($TypesHeaderLabel) | Out-Null
+    $CharacterSetContainer.Children.Add($TypesHeaderDock) | Out-Null
+
+    # Reset Button Factory Helper
+    $NewResetButton = {
+        param(
+            [string]$ToolTipText,
+            [scriptblock]$OnClickAction
+        )
+        $Button = New-BaseButton @{
+            Content           = '↺'
+            ToolTip           = $ToolTipText
+            Background        = 'Transparent'
+            Foreground        = '#C4B8DE'
+            BorderBrush       = 'Transparent'
+            BorderThickness   = 0
+            Cursor            = 'Hand'
+            Width             = 22
+            Height            = 22
+            Padding           = 0
+            FontSize          = 14
+            FontWeight        = 'Bold'
+            VerticalAlignment = 'Center'
+            Margin            = '4,0,0,0'
+        }
+        $Button.Add_MouseEnter({
+                param($s, $e)
+                $s.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#FFFFFF')
+            })
+        $Button.Add_MouseLeave({
+                param($s, $e)
+                $s.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString('#C4B8DE')
+            })
+        $Button.Add_Click($OnClickAction)
+        return $Button
+    }
+
+    # Uppercase Row
+    $UppercaseDock = New-BaseDockPanel @{
+        LastChildFill = $true
+        Margin        = '0,2,0,2'
+    }
+    $UppercaseCheckBox = New-BaseCheckBox @{
+        Content           = 'Uppercase:'
+        IsChecked         = [bool]$CurrentConfiguration.IncludeUppercase
+        Width             = 95
+        FontSize          = 11
+        VerticalAlignment = 'Center'
+    }
+    [System.Windows.Controls.DockPanel]::SetDock($UppercaseCheckBox, 'Left')
+    $UppercaseDock.Children.Add($UppercaseCheckBox) | Out-Null
+
+    $UppercaseResetButton = & $NewResetButton -ToolTipText 'Reset uppercase characters to default' -OnClickAction {
+        $UppercaseTextBox.Text = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+        & $UpdatePreview
+    }
+    [System.Windows.Controls.DockPanel]::SetDock($UppercaseResetButton, 'Right')
+    $UppercaseDock.Children.Add($UppercaseResetButton) | Out-Null
+
+    $UppercaseTextBox = New-BaseTextBox @{
+        Text              = if ($null -ne $CurrentConfiguration.UppercaseCharacters) { [string]$CurrentConfiguration.UppercaseCharacters } else { 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' }
+        Background        = '#3D3452'
+        Foreground        = '#EDEAFA'
+        BorderBrush       = '#7A6E94'
+        BorderThickness   = 1
+        FontSize          = 11
+        FontFamily        = $FontFamily
+        Padding           = '3'
+        Margin            = '4,0,0,0'
+        VerticalAlignment = 'Center'
+    }
+    $UppercaseDock.Children.Add($UppercaseTextBox) | Out-Null
+    $CharacterSetContainer.Children.Add($UppercaseDock) | Out-Null
+
+    # Lowercase Row
+    $LowercaseDock = New-BaseDockPanel @{
+        LastChildFill = $true
+        Margin        = '0,2,0,2'
+    }
+    $LowercaseCheckBox = New-BaseCheckBox @{
+        Content           = 'Lowercase:'
+        IsChecked         = [bool]$CurrentConfiguration.IncludeLowercase
+        Width             = 95
+        FontSize          = 11
+        VerticalAlignment = 'Center'
+    }
+    [System.Windows.Controls.DockPanel]::SetDock($LowercaseCheckBox, 'Left')
+    $LowercaseDock.Children.Add($LowercaseCheckBox) | Out-Null
+
+    $LowercaseResetButton = & $NewResetButton -ToolTipText 'Reset lowercase characters to default' -OnClickAction {
+        $LowercaseTextBox.Text = 'abcdefghijklmnopqrstuvwxyz'
+        & $UpdatePreview
+    }
+    [System.Windows.Controls.DockPanel]::SetDock($LowercaseResetButton, 'Right')
+    $LowercaseDock.Children.Add($LowercaseResetButton) | Out-Null
+
+    $LowercaseTextBox = New-BaseTextBox @{
+        Text              = if ($null -ne $CurrentConfiguration.LowercaseCharacters) { [string]$CurrentConfiguration.LowercaseCharacters } else { 'abcdefghijklmnopqrstuvwxyz' }
+        Background        = '#3D3452'
+        Foreground        = '#EDEAFA'
+        BorderBrush       = '#7A6E94'
+        BorderThickness   = 1
+        FontSize          = 11
+        FontFamily        = $FontFamily
+        Padding           = '3'
+        Margin            = '4,0,0,0'
+        VerticalAlignment = 'Center'
+    }
+    $LowercaseDock.Children.Add($LowercaseTextBox) | Out-Null
+    $CharacterSetContainer.Children.Add($LowercaseDock) | Out-Null
+
+    # Numbers Row
+    $NumbersDock = New-BaseDockPanel @{
+        LastChildFill = $true
+        Margin        = '0,2,0,2'
+    }
+    $NumbersCheckBox = New-BaseCheckBox @{
+        Content           = 'Numbers:'
+        IsChecked         = [bool]$CurrentConfiguration.IncludeNumbers
+        Width             = 95
+        FontSize          = 11
+        VerticalAlignment = 'Center'
+    }
+    [System.Windows.Controls.DockPanel]::SetDock($NumbersCheckBox, 'Left')
+    $NumbersDock.Children.Add($NumbersCheckBox) | Out-Null
+
+    $NumbersResetButton = & $NewResetButton -ToolTipText 'Reset number characters to default' -OnClickAction {
+        $NumbersTextBox.Text = '0123456789'
+        & $UpdatePreview
+    }
+    [System.Windows.Controls.DockPanel]::SetDock($NumbersResetButton, 'Right')
+    $NumbersDock.Children.Add($NumbersResetButton) | Out-Null
+
+    $NumbersTextBox = New-BaseTextBox @{
+        Text              = if ($null -ne $CurrentConfiguration.NumberCharacters) { [string]$CurrentConfiguration.NumberCharacters } else { '0123456789' }
+        Background        = '#3D3452'
+        Foreground        = '#EDEAFA'
+        BorderBrush       = '#7A6E94'
+        BorderThickness   = 1
+        FontSize          = 11
+        FontFamily        = $FontFamily
+        Padding           = '3'
+        Margin            = '4,0,0,0'
+        VerticalAlignment = 'Center'
+    }
+    $NumbersDock.Children.Add($NumbersTextBox) | Out-Null
+    $CharacterSetContainer.Children.Add($NumbersDock) | Out-Null
+
+    # Symbols Row
+    $SymbolsDock = New-BaseDockPanel @{
+        LastChildFill = $true
+        Margin        = '0,2,0,2'
+    }
+    $SymbolsCheckBox = New-BaseCheckBox @{
+        Content           = 'Symbols:'
+        IsChecked         = [bool]$CurrentConfiguration.IncludeSymbols
+        Width             = 95
+        FontSize          = 11
+        VerticalAlignment = 'Center'
+    }
+    [System.Windows.Controls.DockPanel]::SetDock($SymbolsCheckBox, 'Left')
+    $SymbolsDock.Children.Add($SymbolsCheckBox) | Out-Null
+
+    $SymbolsResetButton = & $NewResetButton -ToolTipText 'Reset symbol characters to default' -OnClickAction {
+        $SymbolsTextBox.Text = '!@#$%^&*()_+-=[]{}|;:,.<>?'
+        & $UpdatePreview
+    }
+    [System.Windows.Controls.DockPanel]::SetDock($SymbolsResetButton, 'Right')
+    $SymbolsDock.Children.Add($SymbolsResetButton) | Out-Null
+
+    $SymbolsTextBox = New-BaseTextBox @{
+        Text              = if ($null -ne $CurrentConfiguration.SymbolCharacters) { [string]$CurrentConfiguration.SymbolCharacters } else { '!@#$%^&*()_+-=[]{}|;:,.<>?' }
+        Background        = '#3D3452'
+        Foreground        = '#EDEAFA'
+        BorderBrush       = '#7A6E94'
+        BorderThickness   = 1
+        FontSize          = 11
+        FontFamily        = $FontFamily
+        Padding           = '3'
+        Margin            = '4,0,0,0'
+        VerticalAlignment = 'Center'
+    }
+    $SymbolsDock.Children.Add($SymbolsTextBox) | Out-Null
+    $CharacterSetContainer.Children.Add($SymbolsDock) | Out-Null
+
+    $MainStackPanel.Children.Add($CharacterSetContainer) | Out-Null
+
+    # Regular Expression Section Container
+    $RegularExpressionContainer = New-BaseStackPanel @{
+        Orientation = 'Vertical'
+        Visibility  = if ($CurrentMode -eq 'RegularExpression') { 'Visible' } else { 'Collapsed' }
+    }
+
+    $RegexHeaderDock = New-BaseDockPanel @{
+        LastChildFill = $true
+        Margin        = '0,4,0,4'
+    }
+
+    # Left: Label + Information Button
+    $RegexTitleStack = New-BaseStackPanel @{
+        Orientation       = 'Horizontal'
+        VerticalAlignment = 'Center'
+    }
+    $RegexHeaderLabel = New-BaseTextBlock @{
+        Text              = 'Regular Expression:'
+        Foreground        = '#EDEAFA'
+        FontSize          = 11
+        FontWeight        = 'Bold'
+        VerticalAlignment = 'Center'
+    }
+    $RegexTitleStack.Children.Add($RegexHeaderLabel) | Out-Null
+
+    $RegexInfoButton = New-BaseButton @{
+        Content           = 'ℹ'
+        ToolTip           = "Supported Regular Expression Features:`n• Character classes: [a-z], [A-Z], [0-9], [aeiou]`n• Negated classes: [^0-9], [^a-z]`n• Shorthands: \d (digit), \w (word), \s (space), . (printable)`n• Quantifiers: {n}, {minimum,maximum}, ? (zero or one), * (zero or more), + (one or more)`n• Alternation: option1|option2|option3`n• Groups: (pattern)`n• Escaped characters: \., \-, \(, \), \[, \], \{, \}, \\, \|"
+        Background        = 'Transparent'
+        BorderBrush       = 'Transparent'
+        BorderThickness   = 0
+        Foreground        = '#87CEEB'
+        Cursor            = 'Help'
+        Width             = 20
+        Height            = 20
+        Padding           = 0
+        FontSize          = 13
+        FontWeight        = 'Bold'
+        VerticalAlignment = 'Center'
+        Margin            = '6,0,0,0'
+    }
+    $RegexTitleStack.Children.Add($RegexInfoButton) | Out-Null
+    [System.Windows.Controls.DockPanel]::SetDock($RegexTitleStack, 'Left')
+    $RegexHeaderDock.Children.Add($RegexTitleStack) | Out-Null
+
+    # Right: Presets ComboBox
+    $PresetDock = New-BaseDockPanel @{
+        LastChildFill       = $true
+        HorizontalAlignment = 'Right'
+        VerticalAlignment   = 'Center'
+    }
+    $PresetLabel = New-BaseTextBlock @{
+        Text              = 'Presets: '
+        Foreground        = '#C4B8DE'
+        FontSize          = 11
+        VerticalAlignment = 'Center'
+        Margin            = '0,0,4,0'
+    }
+    [System.Windows.Controls.DockPanel]::SetDock($PresetLabel, 'Left')
+    $PresetDock.Children.Add($PresetLabel) | Out-Null
+
+    $PresetComboBox = New-BaseComboBox @{
+        Width             = 175
+        Height            = 22
+        FontSize          = 11
+        Background        = '#3D3452'
+        Foreground        = '#EDEAFA'
+        BorderBrush       = '#7A6E94'
+        BorderThickness   = 1
+        VerticalAlignment = 'Center'
+    }
+
+    $ComboBoxTemplateXaml = @"
+<ControlTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                 TargetType="ComboBox">
+    <Grid>
+        <ToggleButton Name="ToggleButton"
+                      Background="{TemplateBinding Background}"
+                      Foreground="{TemplateBinding Foreground}"
+                      BorderBrush="{TemplateBinding BorderBrush}"
+                      BorderThickness="{TemplateBinding BorderThickness}"
+                      Focusable="false"
+                      IsChecked="{Binding Path=IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}"
+                      ClickMode="Press">
+            <ToggleButton.Template>
+                <ControlTemplate TargetType="ToggleButton">
+                    <Border Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="2">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition />
+                                <ColumnDefinition Width="20" />
+                            </Grid.ColumnDefinitions>
+                            <Path Grid.Column="1"
+                                  HorizontalAlignment="Center"
+                                  VerticalAlignment="Center"
+                                  Data="M 0 0 L 4 4 L 8 0 Z"
+                                  Fill="#EDEAFA" />
+                        </Grid>
+                    </Border>
+                </ControlTemplate>
+            </ToggleButton.Template>
+        </ToggleButton>
+        <ContentPresenter Name="ContentSite"
+                          IsHitTestVisible="False"
+                          Content="{TemplateBinding SelectionBoxItem}"
+                          ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                          ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}"
+                          Margin="6,3,23,3"
+                          VerticalAlignment="Center"
+                          HorizontalAlignment="Left" />
+        <Popup Name="Popup"
+               Placement="Bottom"
+               IsOpen="{TemplateBinding IsDropDownOpen}"
+               AllowsTransparency="True"
+               Focusable="False"
+               PopupAnimation="Slide">
+            <Grid Name="DropDown"
+                  SnapsToDevicePixels="True"
+                  MinWidth="{TemplateBinding ActualWidth}"
+                  MaxHeight="{TemplateBinding MaxDropDownHeight}">
+                <Border x:Name="DropDownBorder"
+                        Background="#2E273D"
+                        BorderBrush="#7A6E94"
+                        BorderThickness="1"
+                        CornerRadius="2" />
+                <ScrollViewer Margin="2" SnapsToDevicePixels="True">
+                    <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Contained" />
+                </ScrollViewer>
+            </Grid>
+        </Popup>
+    </Grid>
+</ControlTemplate>
+"@
+
+    $ComboBoxItemStyleXaml = @"
+<Style xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+       TargetType="ComboBoxItem">
+    <Setter Property="Background" Value="#2E273D" />
+    <Setter Property="Foreground" Value="#EDEAFA" />
+    <Setter Property="Padding" Value="6,4,6,4" />
+    <Setter Property="Cursor" Value="Hand" />
+    <Setter Property="Template">
+        <Setter.Value>
+            <ControlTemplate TargetType="ComboBoxItem">
+                <Border x:Name="ItemBorder"
+                        Background="{TemplateBinding Background}"
+                        Padding="{TemplateBinding Padding}">
+                    <ContentPresenter />
+                </Border>
+                <ControlTemplate.Triggers>
+                    <Trigger Property="IsMouseOver" Value="True">
+                        <Setter TargetName="ItemBorder" Property="Background" Value="#504368" />
+                        <Setter Property="Foreground" Value="#FFFFFF" />
+                    </Trigger>
+                    <Trigger Property="IsSelected" Value="True">
+                        <Setter TargetName="ItemBorder" Property="Background" Value="#655580" />
+                        <Setter Property="Foreground" Value="#FFFFFF" />
+                    </Trigger>
+                </ControlTemplate.Triggers>
+            </ControlTemplate>
+        </Setter.Value>
+    </Setter>
+</Style>
+"@
+
+    $PresetComboBox.Template = [System.Windows.Markup.XamlReader]::Parse($ComboBoxTemplateXaml)
+    $PresetComboBox.ItemContainerStyle = [System.Windows.Markup.XamlReader]::Parse($ComboBoxItemStyleXaml)
+
+    $PresetPatterns = [ordered]@{
+        'Telephone Number'              = '\(\d{3}\) \d{3}-\d{4}'
+        'Electronic Mail Address'       = '[a-z]{4,8}@(gmail|yahoo|outlook)\.(com|org|net)'
+        'Product Key'                   = '[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}'
+        'Postal Code'                   = '[A-Z]\d[A-Z] \d[A-Z]\d'
+        'Hexadecimal Color'             = '#[0-9A-Fa-f]{6}'
+        'Universally Unique Identifier' = '[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}'
+        'Internet Protocol Address'     = '\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}'
+        'Date (YYYY-MM-DD)'             = '202[4-9]-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])'
+    }
+
+    $null = $PresetComboBox.Items.Add('(Select a preset...)')
+    foreach ($PresetKey in $PresetPatterns.Keys) {
+        $null = $PresetComboBox.Items.Add($PresetKey)
+    }
+    $PresetComboBox.SelectedIndex = 0
+    $PresetDock.Children.Add($PresetComboBox) | Out-Null
+    [System.Windows.Controls.DockPanel]::SetDock($PresetDock, 'Right')
+    $RegexHeaderDock.Children.Add($PresetDock) | Out-Null
+    $RegularExpressionContainer.Children.Add($RegexHeaderDock) | Out-Null
+
+    # Pattern Row
+    $PatternDock = New-BaseDockPanel @{
+        LastChildFill = $true
+        Margin        = '0,4,0,4'
+    }
+    $PatternLabel = New-BaseTextBlock @{
+        Text              = 'Pattern: '
+        Foreground        = '#EDEAFA'
+        FontSize          = 11
+        VerticalAlignment = 'Center'
+        Width             = 60
+    }
+    [System.Windows.Controls.DockPanel]::SetDock($PatternLabel, 'Left')
+    $PatternDock.Children.Add($PatternLabel) | Out-Null
+
+    $RegexTextBox = New-BaseTextBox @{
+        Text              = $CurrentRegularExpressionPattern
+        Background        = '#3D3452'
+        Foreground        = '#EDEAFA'
+        BorderBrush       = '#7A6E94'
+        BorderThickness   = 1
+        FontSize          = 11
+        FontFamily        = 'Consolas'
+        Padding           = '3'
+        VerticalAlignment = 'Center'
+    }
+    $PatternDock.Children.Add($RegexTextBox) | Out-Null
+    $RegularExpressionContainer.Children.Add($PatternDock) | Out-Null
+
+    $MainStackPanel.Children.Add($RegularExpressionContainer) | Out-Null
+
+    # Mode switching handlers
+    $ModeCharacterSetsRadioButton.Add_Checked({
+            $CharacterSetContainer.Visibility = 'Visible'
+            $RegularExpressionContainer.Visibility = 'Collapsed'
+            & $UpdatePreview
+        })
+    $ModeRegularExpressionRadioButton.Add_Checked({
+            $CharacterSetContainer.Visibility = 'Collapsed'
+            $RegularExpressionContainer.Visibility = 'Visible'
+            & $UpdatePreview
+        })
+
+    # Preset selection handler
+    $PresetComboBox.Add_SelectionChanged({
+            if ($PresetComboBox.SelectedIndex -gt 0) {
+                $SelectedName = [string]$PresetComboBox.SelectedItem
+                if ($PresetPatterns.Contains($SelectedName)) {
+                    $RegexTextBox.Text = $PresetPatterns[$SelectedName]
+                    & $UpdatePreview
+                }
+                $PresetComboBox.SelectedIndex = 0
+            }
+        })
+
+    # Scope Option
+    $GlobalCheckBox = New-BaseCheckBox @{
+        Content    = 'Save as Global Default'
+        IsChecked  = $false
+        Margin     = '0,8,0,4'
+        FontSize   = 11
+        FontWeight = 'SemiBold'
+    }
+    $MainStackPanel.Children.Add($GlobalCheckBox) | Out-Null
+
+    # Live Preview Section
+    $PreviewDock = New-BaseDockPanel @{
+        LastChildFill = $true
+        Margin        = '0,6,0,0'
+    }
+    $PreviewLabel = New-BaseTextBlock @{
+        Text              = 'Preview: '
+        Foreground        = '#C4B8DE'
+        FontSize          = 11
+        VerticalAlignment = 'Center'
+        Width             = 60
+    }
+    [System.Windows.Controls.DockPanel]::SetDock($PreviewLabel, 'Left')
+    $PreviewDock.Children.Add($PreviewLabel) | Out-Null
+
+    $PreviewTextBlock = New-BaseTextBlock @{
+        Text              = ''
+        Foreground        = '#98FB98'
+        FontFamily        = 'Consolas'
+        FontSize          = 11
+        VerticalAlignment = 'Center'
+        TextTrimming      = 'CharacterEllipsis'
+        Cursor            = 'Hand'
+        ToolTip           = 'Click to copy preview text'
+    }
+    $PreviewDock.Children.Add($PreviewTextBlock) | Out-Null
+
+    $PreviewFeedbackTextBlock = New-BaseTextBlock @{
+        Text              = ''
+        Foreground        = '#FFD700'
+        FontSize          = 10
+        Margin            = '8,0,0,0'
+        VerticalAlignment = 'Center'
+    }
+    $PreviewDock.Children.Add($PreviewFeedbackTextBlock) | Out-Null
+    $MainStackPanel.Children.Add($PreviewDock) | Out-Null
+
+    $PreviewTextBlock.Add_PreviewMouseLeftButtonDown({
+            param($s, $e)
+            if (-not [string]::IsNullOrEmpty($s.Text) -and $s.Text -ne '(empty pattern)' -and $s.Text -ne '(invalid pattern)') {
+                [System.Windows.Clipboard]::SetText($s.Text)
+                $PreviewFeedbackTextBlock.Text = 'Copied!'
+            }
+        })
+
+    $ValidationWarningTextBlock = New-BaseTextBlock @{
+        Text                = ''
+        Foreground          = '#FF6B6B'
+        FontSize            = 11
+        Margin              = '0,6,0,0'
+        HorizontalAlignment = 'Center'
+    }
+    $MainStackPanel.Children.Add($ValidationWarningTextBlock) | Out-Null
+
+    $UpdatePreview = {
+        $ValidationWarningTextBlock.Text = ''
+        $PreviewFeedbackTextBlock.Text = ''
+        if ($ModeRegularExpressionRadioButton.IsChecked) {
+            $PatternValue = [string]$RegexTextBox.Text
+            if ([string]::IsNullOrWhiteSpace($PatternValue)) {
+                $PreviewTextBlock.Text = '(empty pattern)'
+                return
+            }
+            try {
+                $PreviewTextBlock.Text = Get-RandomStringFromRegularExpression -Pattern $PatternValue
+            }
+            catch {
+                $PreviewTextBlock.Text = '(invalid pattern)'
+            }
+        }
+        else {
+            $ParsedLength = 10
+            if (-not [int]::TryParse($LengthTextBox.Text, [ref]$ParsedLength) -or $ParsedLength -le 0) {
+                $ParsedLength = 10
+            }
+            $TemporaryConfiguration = @{
+                GenerationMode      = 'CharacterSets'
+                Length              = $ParsedLength
+                IncludeUppercase    = [bool]$UppercaseCheckBox.IsChecked
+                UppercaseCharacters = [string]$UppercaseTextBox.Text
+                IncludeLowercase    = [bool]$LowercaseCheckBox.IsChecked
+                LowercaseCharacters = [string]$LowercaseTextBox.Text
+                IncludeNumbers      = [bool]$NumbersCheckBox.IsChecked
+                NumberCharacters    = [string]$NumbersTextBox.Text
+                IncludeSymbols      = [bool]$SymbolsCheckBox.IsChecked
+                SymbolCharacters    = [string]$SymbolsTextBox.Text
+            }
+            $PreviewTextBlock.Text = Get-RandomCustomString -Configuration $TemporaryConfiguration
+        }
+    }
+
+    $LengthTextBox.Add_TextChanged({ & $UpdatePreview })
+    $UppercaseCheckBox.Add_Click({ & $UpdatePreview })
+    $UppercaseTextBox.Add_TextChanged({ & $UpdatePreview })
+    $LowercaseCheckBox.Add_Click({ & $UpdatePreview })
+    $LowercaseTextBox.Add_TextChanged({ & $UpdatePreview })
+    $NumbersCheckBox.Add_Click({ & $UpdatePreview })
+    $NumbersTextBox.Add_TextChanged({ & $UpdatePreview })
+    $SymbolsCheckBox.Add_Click({ & $UpdatePreview })
+    $SymbolsTextBox.Add_TextChanged({ & $UpdatePreview })
+    $RegexTextBox.Add_TextChanged({ & $UpdatePreview })
+
+    & $UpdatePreview
+
+    $SaveAction = {
+        param([bool]$SaveAndUse = $false)
+        $IsRegularExpression = [bool]$ModeRegularExpressionRadioButton.IsChecked
+
+        if ($IsRegularExpression) {
+            $PatternValue = [string]$RegexTextBox.Text
+            if ([string]::IsNullOrWhiteSpace($PatternValue)) {
+                $ValidationWarningTextBlock.Text = 'Please provide a regular expression pattern.'
+                return $null
+            }
+            try {
+                [void][regex]::new($PatternValue)
+                $null = Get-RandomStringFromRegularExpression -Pattern $PatternValue
+            }
+            catch {
+                $ValidationWarningTextBlock.Text = 'The regular expression pattern contains syntax errors.'
+                return $null
+            }
+        }
+        else {
+            $ActiveCharactersCount = 0
+            if ($UppercaseCheckBox.IsChecked) { $ActiveCharactersCount += $UppercaseTextBox.Text.Length }
+            if ($LowercaseCheckBox.IsChecked) { $ActiveCharactersCount += $LowercaseTextBox.Text.Length }
+            if ($NumbersCheckBox.IsChecked) { $ActiveCharactersCount += $NumbersTextBox.Text.Length }
+            if ($SymbolsCheckBox.IsChecked) { $ActiveCharactersCount += $SymbolsTextBox.Text.Length }
+
+            if ($ActiveCharactersCount -eq 0) {
+                $ValidationWarningTextBlock.Text = 'Please provide at least one character in an enabled character type.'
+                return $null
+            }
+        }
+
+        $ValidLength = 10
+        if (-not [int]::TryParse($LengthTextBox.Text, [ref]$ValidLength) -or $ValidLength -le 0) {
+            $ValidLength = 10
+        }
+        if ($ValidLength -gt 4096) { $ValidLength = 4096 }
+
+        $HasAnyType = ($UppercaseCheckBox.IsChecked -or $LowercaseCheckBox.IsChecked -or $NumbersCheckBox.IsChecked -or $SymbolsCheckBox.IsChecked)
+        $NewConfiguration = @{
+            GenerationMode             = if ($IsRegularExpression) { 'RegularExpression' } else { 'CharacterSets' }
+            RegularExpressionPattern   = [string]$RegexTextBox.Text
+            UnboundedRepetitionMaximum = 5
+            Length                     = $ValidLength
+            IncludeUppercase           = if ($HasAnyType) { [bool]$UppercaseCheckBox.IsChecked } else { $true }
+            UppercaseCharacters        = [string]$UppercaseTextBox.Text
+            IncludeLowercase           = if ($HasAnyType) { [bool]$LowercaseCheckBox.IsChecked } else { $true }
+            LowercaseCharacters        = [string]$LowercaseTextBox.Text
+            IncludeNumbers             = if ($HasAnyType) { [bool]$NumbersCheckBox.IsChecked } else { $true }
+            NumberCharacters           = [string]$NumbersTextBox.Text
+            IncludeSymbols             = [bool]$SymbolsCheckBox.IsChecked
+            SymbolCharacters           = [string]$SymbolsTextBox.Text
+            SaveAndUse                 = $SaveAndUse
+        }
+
+        if ($TargetWrapper) {
+            if (-not ($TargetWrapper.Tag -is [hashtable])) { $TargetWrapper.Tag = @{} }
+            $TargetWrapper.Tag.RandomValuesConfiguration = $NewConfiguration
+        }
+
+        if ($GlobalCheckBox.IsChecked) {
+            $script:GlobalRandomValuesConfiguration = $NewConfiguration
+            try {
+                $ConfigurationDirectory = [System.IO.Path]::GetDirectoryName($RandomValuesConfigurationFilePath)
+                if ($ConfigurationDirectory -and (-not (Test-Path -LiteralPath $ConfigurationDirectory))) {
+                    [void][System.IO.Directory]::CreateDirectory($ConfigurationDirectory)
+                }
+                $JsonData = ConvertTo-Json -InputObject $NewConfiguration
+                [System.IO.File]::WriteAllText($RandomValuesConfigurationFilePath, $JsonData)
+            }
+            catch {
+                Write-Host "{Show-RandomValuesConfigurationDialog} Error saving configuration: $_" -ForegroundColor Yellow
+            }
+        }
+
+        return $NewConfiguration
+    }
+
+    $Result = New-QuickSetModalDialog `
+        -Title 'Random Values Customization' `
+        -Width 520 `
+        -Height 430 `
+        -ContentControls @($MainStackPanel) `
+        -AffirmativeButtonText 'Save' `
+        -NegativeButtonText 'Cancel' `
+        -AuxiliaryButtonText 'Save and Use' `
+        -AuxiliaryResultProvider { & $SaveAction -SaveAndUse $true } `
+        -ResultProvider { & $SaveAction -SaveAndUse $false }
+
+    Stop-FunctionMeasurement -FunctionName 'Show-RandomValuesConfigurationDialog'
+    return $Result
+} # function Show-RandomValuesConfigurationDialog
+
 function Get-QuickSetTypeDirectory {
     param($Type)
     Start-FunctionMeasurement -FunctionName "Get-QuickSetTypeDirectory"
@@ -2253,7 +4228,8 @@ function Get-WrapperTargetType {
     }
     $DescBlock = Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $_.Name -eq $ContentHeaderDescriptionValueName } -FindMax 1
     if ($DescBlock -and -not [string]::IsNullOrWhiteSpace($DescBlock.Text)) {
-        try { return [type]$DescBlock.Text } catch { return $DescBlock.Text }
+        $CleanText = [System.Text.RegularExpressions.Regex]::Replace($DescBlock.Text, '\[.*?\]', '[]')
+        try { return [type]$CleanText } catch { return $CleanText }
     }
     $Content = Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $_.Name -eq $ContentElementName } -FindMax 1
     if ($Content) {
@@ -2284,6 +4260,16 @@ function Get-QuickSetMenuFromSender {
     if ($Target -is [System.Windows.Controls.MenuItem] -and $Target.Name -like "*$QuickSetMenuNameSuffix") {
         return $Target
     }
+
+    $Current = $Target.Parent
+    while ($null -ne $Current) {
+        if ($Current.Name -like "*$QuickSetMenuNameSuffix") {
+            Stop-FunctionMeasurement -FunctionName "Get-QuickSetMenuFromSender"
+            return $Current
+        }
+        $Current = $Current.Parent
+    }
+
     $Found = Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $_.Name -like "*$QuickSetMenuNameSuffix" } -DigProperties 'Parent' -FindMax 1
     if ($Found -is [array]) { return $Found[0] }
     Stop-FunctionMeasurement -FunctionName "Get-QuickSetMenuFromSender"
@@ -2458,6 +4444,7 @@ function Save-QuickSetFile {
 
     if (-not ($TargetWrapper.Tag -is [hashtable])) { $TargetWrapper.Tag = @{} }
     $TargetWrapper.Tag.ActiveQuickSet = $SanitizedName
+    $TargetWrapper.Tag.QuickSetSnapshot = $JsonText
     Update-QuickSetBadge -Wrapper $TargetWrapper -DisplayName $SanitizedName
 
     Stop-FunctionMeasurement -FunctionName "Save-QuickSetFile"
@@ -2566,7 +4553,7 @@ function Set-WrapperQuickSetValue {
     # -DepthMax 0 with this DepthWhere means a search never goes inside a child wrapper
     $StopAtChild = { @($ContentHeaderBorderName, $ContentBorderName) -contains $_.Name }
 
-    $SearchBar = if ($Tag.ContainsKey('SearchBar') -and $Tag.SearchBar) { $Tag.SearchBar } else { Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $_.Name -like "*$SearchBarNameSuffix" } -DepthMax 0 -DepthWhere $StopAtChild -FindMax 1 }
+    $SearchBar = if ($Tag.ContainsKey('SearchBar')) { $Tag.SearchBar } else { Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $_.Name -like "*$SearchBarNameSuffix" } -DepthMax 0 -DepthWhere $StopAtChild -FindMax 1 }
     if ($SearchBar -and $SearchBar.Visibility -eq 'Visible') {
         Close-SearchBar -ChildElement $SearchBar
     }
@@ -2657,12 +4644,13 @@ function Set-WrapperQuickSetValue {
             $SetCount = [Math]::Min($List.Count, $ContentSlot.Children.Count)
             for ($i = 0; $i -lt $SetCount; $i++) {
                 Set-WrapperQuickSetValue -Wrapper $ContentSlot.Children[$i] -Value $List[$i] -ValuesOnly:$ValuesOnly
-
-                # Dispatcher frame yielding: renders each item onto the screen immediately as it finishes loading
-                [System.Windows.Threading.Dispatcher]::CurrentDispatcher.Invoke([System.Action]{}, [System.Windows.Threading.DispatcherPriority]::Background)
             }
 
-            # Batch array button states once for the container after all child elements are populated
+            # Dispatcher frame yielding: renders all items onto the screen once after batch population
+            [System.Windows.Threading.Dispatcher]::CurrentDispatcher.Invoke([System.Action] {}, [System.Windows.Threading.DispatcherPriority]::Background)
+
+            # Batch array button states and enable confirmation once for the container after all child elements are populated
+            Confirm-ArrayEnableButton -Item ([ref]$Target)
             Update-ArrayButtonsState -Wrapper $Target
         }
     }
@@ -2679,7 +4667,9 @@ function Set-WrapperQuickSetValue {
     }
     else {
         # Direct content controls
-        $Content = if ($Target.Name -eq $ContentElementName) { $Target } else {
+        $Content = if ($Target.Name -eq $ContentElementName) { $Target }
+        elseif ($Tag.ContainsKey('Content') -and $Tag.Content) { $Tag.Content }
+        else {
             Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $_.Name -eq $ContentElementName } -DepthMax 0 -DepthWhere $StopAtChild -FindMax 1
         }
         if ($Content) {
@@ -2711,9 +4701,17 @@ function Set-WrapperQuickSetValue {
             }
         }
         else {
-            $DTP = Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $_.Name -eq $CustomDateTimePickerName } -DepthMax 0 -DepthWhere $StopAtChild -FindMax 1
+            $DTP = if ($Tag.ContainsKey('CustomDateTimePicker') -and $Tag.CustomDateTimePicker) { $Tag.CustomDateTimePicker }
+            else {
+                Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $_.Name -eq $CustomDateTimePickerName } -DepthMax 0 -DepthWhere $StopAtChild -FindMax 1
+            }
             if ($DTP) {
-                $DateBox = Find-ObjectWhere -Object ([ref]$DTP) -FindWhere { $_.Name -eq $ContentDateTimeDisplayTextBoxName } -FindMax 1
+                $DateBox = if ($DTP.Tag -is [hashtable] -and $DTP.Tag.ContainsKey('DisplayTextBox') -and $DTP.Tag.DisplayTextBox) {
+                    $DTP.Tag.DisplayTextBox
+                }
+                else {
+                    Find-ObjectWhere -Object ([ref]$DTP) -FindWhere { $_.Name -eq $ContentDateTimeDisplayTextBoxName } -FindMax 1
+                }
                 if ($DateBox) {
                     Restore-ElementSearchStyle -Element $DateBox
                     $DateBox.Text = if ($null -ne $Value) { [string]$Value } else { '' }
@@ -2726,7 +4724,7 @@ function Set-WrapperQuickSetValue {
         Set-TargetMinMaxState -Target $Target -IsMinimized $DesiredMinimized
     }
     if (-not $ValuesOnly) {
-        Set-TargetDisabledState -Target $Target -IsDisabled $DesiredDisabled
+        Set-TargetDisabledState -Target $Target -IsDisabled $DesiredDisabled -SkipParentSync
         Set-TargetLockedState -Target $Target -IsLocked $DesiredLocked
         if ($HasDesiredSearch) {
             Set-WrapperSearchState -Wrapper $Target -SearchData $DesiredSearchData
@@ -2753,7 +4751,7 @@ function Clear-WrapperQuickSetValue {
 
     $StopAtChild = { @($ContentHeaderBorderName, $ContentBorderName) -contains $_.Name }
 
-    $SearchBar = if ($Tag.ContainsKey('SearchBar') -and $Tag.SearchBar) { $Tag.SearchBar } else { Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $_.Name -like "*$SearchBarNameSuffix" } -DepthMax 0 -DepthWhere $StopAtChild -FindMax 1 }
+    $SearchBar = if ($Tag.ContainsKey('SearchBar')) { $Tag.SearchBar } else { Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $_.Name -like "*$SearchBarNameSuffix" } -DepthMax 0 -DepthWhere $StopAtChild -FindMax 1 }
     if ($SearchBar -and $SearchBar.Visibility -eq 'Visible') {
         Close-SearchBar -ChildElement $SearchBar
     }
@@ -2857,11 +4855,22 @@ function Reset-WrapperQuickSet {
 
     if ($TargetWrapper.Tag -is [hashtable] -and $null -ne $TargetWrapper.Tag.ActiveQuickSet) {
         $TargetWrapper.Tag.ActiveQuickSet = $null
+        $TargetWrapper.Tag.QuickSetSnapshot = $null
         Update-QuickSetBadge -Wrapper $TargetWrapper -DisplayName $null
     }
 
     $QSMenu = if ($QuickSetMenuItem) { Resolve-TargetElement $QuickSetMenuItem } else {
-        Resolve-TargetElement (Find-ObjectWhere -Object ([ref]$TargetWrapper) -FindWhere { $_.Name -like "*$QuickSetMenuNameSuffix" } -FindMax 1)
+        $Menu = Get-WrapperMenu -Wrapper $TargetWrapper
+        if ($Menu -and $Menu.Tag -is [hashtable] -and $Menu.Tag.ButtonsByName) {
+            $FoundQS = $null
+            foreach ($Key in $Menu.Tag.ButtonsByName.Keys) {
+                if ($Key -like "*$QuickSetMenuNameSuffix") { $FoundQS = $Menu.Tag.ButtonsByName[$Key]; break }
+            }
+            if ($FoundQS) { $FoundQS } else { Resolve-TargetElement (Find-ObjectWhere -Object ([ref]$TargetWrapper) -FindWhere { $_.Name -like "*$QuickSetMenuNameSuffix" } -FindMax 1) }
+        }
+        else {
+            Resolve-TargetElement (Find-ObjectWhere -Object ([ref]$TargetWrapper) -FindWhere { $_.Name -like "*$QuickSetMenuNameSuffix" } -FindMax 1)
+        }
     }
     if ($QSMenu) {
         Set-QuickSetActiveButtonsState -QuickSetMenuItem $QSMenu -IsEnabled $false
@@ -2869,6 +4878,159 @@ function Reset-WrapperQuickSet {
     }
     Stop-FunctionMeasurement -FunctionName "Reset-WrapperQuickSet"
 } # function Reset-WrapperQuickSet
+
+function Get-WrapperQuickSetSnapshot {
+    param([Parameter(Mandatory)]$Wrapper)
+    Start-FunctionMeasurement -FunctionName "Get-WrapperQuickSetSnapshot"
+    $Target = Resolve-QuickSetWrapper $Wrapper
+    if (-not $Target) { return $null }
+    $CurrentVal = Get-WrapperQuickSetValue -Wrapper $Target
+    $Snapshot = ConvertTo-Json -InputObject $CurrentVal -Depth 20
+    Stop-FunctionMeasurement -FunctionName "Get-WrapperQuickSetSnapshot"
+    return $Snapshot
+} # function Get-WrapperQuickSetSnapshot
+
+function Test-QuickSetValueNotEmpty {
+    param($Value)
+    if ($null -eq $Value) { return $false }
+    if ($Value -is [string]) {
+        return (-not [string]::IsNullOrWhiteSpace($Value))
+    }
+    if ($Value -is [System.Collections.IDictionary]) {
+        foreach ($Key in $Value.Keys) {
+            if (Test-QuickSetValueNotEmpty -Value $Value[$Key]) { return $true }
+        }
+        return $false
+    }
+    if ($Value -is [System.Collections.IEnumerable] -and -not ($Value -is [string])) {
+        $Items = @($Value)
+        if ($Items.Count -eq 0) { return $false }
+        foreach ($Item in $Items) {
+            if (Test-QuickSetValueNotEmpty -Value $Item) { return $true }
+        }
+        return $false
+    }
+    return $true
+} # function Test-QuickSetValueNotEmpty
+
+function Test-WrapperHasQuickSetValue {
+    param([Parameter(Mandatory)]$Wrapper)
+    Start-FunctionMeasurement -FunctionName "Test-WrapperHasQuickSetValue"
+    $Target = Resolve-QuickSetWrapper $Wrapper
+    if (-not $Target) { return $false }
+    $Val = Get-WrapperQuickSetValue -Wrapper $Target -ValuesOnly
+    $HasValue = Test-QuickSetValueNotEmpty -Value $Val
+    Stop-FunctionMeasurement -FunctionName "Test-WrapperHasQuickSetValue"
+    return $HasValue
+} # function Test-WrapperHasQuickSetValue
+
+function Test-IsActiveQuickSetWrapper {
+    param($Element)
+    Start-FunctionMeasurement -FunctionName "Test-IsActiveQuickSetWrapper"
+    if ($null -eq $Element) {
+        Stop-FunctionMeasurement -FunctionName "Test-IsActiveQuickSetWrapper"
+        return $false
+    }
+    $Tag = $Element.Tag
+    if (-not ($Tag -is [hashtable])) {
+        Stop-FunctionMeasurement -FunctionName "Test-IsActiveQuickSetWrapper"
+        return $false
+    }
+    if (-not $Tag.ContainsKey('IsArray')) {
+        Stop-FunctionMeasurement -FunctionName "Test-IsActiveQuickSetWrapper"
+        return $false
+    }
+    $ActiveName = $Tag['ActiveQuickSet']
+    if ([string]::IsNullOrWhiteSpace($ActiveName)) {
+        Stop-FunctionMeasurement -FunctionName "Test-IsActiveQuickSetWrapper"
+        return $false
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($Tag['QuickSetSnapshot'])) {
+        Stop-FunctionMeasurement -FunctionName "Test-IsActiveQuickSetWrapper"
+        return $true
+    }
+
+    $Type = Get-WrapperTargetType -Wrapper $Element
+    $TypeDir = Get-QuickSetTypeDirectory -Type $Type
+    $FilePath = Join-Path $TypeDir "$ActiveName.json"
+    $IsActive = (Test-Path -LiteralPath $FilePath)
+    Stop-FunctionMeasurement -FunctionName "Test-IsActiveQuickSetWrapper"
+    return $IsActive
+} # function Test-IsActiveQuickSetWrapper
+
+function Test-IsWrapperQuickSetModified {
+    param([Parameter(Mandatory)]$Wrapper)
+    Start-FunctionMeasurement -FunctionName "Test-IsWrapperQuickSetModified"
+    $Target = Resolve-QuickSetWrapper $Wrapper
+    if (-not $Target) { return $false }
+
+    $Tag = $Target.Tag
+    if (-not ($Tag -is [hashtable])) { return $false }
+
+    $ActiveName = $Tag['ActiveQuickSet']
+    if ([string]::IsNullOrWhiteSpace($ActiveName)) {
+        Stop-FunctionMeasurement -FunctionName "Test-IsWrapperQuickSetModified"
+        return $false
+    }
+
+    $CurrentSnapshot = Get-WrapperQuickSetSnapshot -Wrapper $Target
+
+    if (-not [string]::IsNullOrWhiteSpace($Tag['QuickSetSnapshot'])) {
+        $IsModified = ($CurrentSnapshot -ne $Tag['QuickSetSnapshot'])
+        Stop-FunctionMeasurement -FunctionName "Test-IsWrapperQuickSetModified"
+        return $IsModified
+    }
+
+    $Type = Get-WrapperTargetType -Wrapper $Target
+    $TypeDir = Get-QuickSetTypeDirectory -Type $Type
+    $FilePath = Join-Path $TypeDir "$ActiveName.json"
+    if (Test-Path -LiteralPath $FilePath) {
+        $DiskRaw = Get-Content -LiteralPath $FilePath -Raw -Encoding UTF8
+        $DiskNormalized = try { ConvertTo-Json -InputObject ($DiskRaw | ConvertFrom-Json) -Depth 20 } catch { $DiskRaw }
+        $IsModified = ($CurrentSnapshot -ne $DiskNormalized)
+        Stop-FunctionMeasurement -FunctionName "Test-IsWrapperQuickSetModified"
+        return $IsModified
+    }
+
+    Stop-FunctionMeasurement -FunctionName "Test-IsWrapperQuickSetModified"
+    return $false
+} # function Test-IsWrapperQuickSetModified
+
+function Get-ActiveQuickSetWrappers {
+    param([Parameter(Mandatory)]$Window)
+    Start-FunctionMeasurement -FunctionName "Get-ActiveQuickSetWrappers"
+    $FoundWrappers = [System.Collections.ArrayList]@()
+    $AllWrappers = Find-ObjectWhere -Object ([ref]$Window) -FindWhere {
+        Test-IsActiveQuickSetWrapper $_
+    }
+    if ($AllWrappers) {
+        foreach ($Wrapper in @($AllWrappers)) {
+            $Resolved = Resolve-TargetElement $Wrapper
+            if ($Resolved -and -not $FoundWrappers.Contains($Resolved)) {
+                [void]$FoundWrappers.Add($Resolved)
+            }
+        }
+    }
+    Stop-FunctionMeasurement -FunctionName "Get-ActiveQuickSetWrappers"
+    return @($FoundWrappers)
+} # function Get-ActiveQuickSetWrappers
+
+function Get-ModifiedQuickSetWrappers {
+    param([Parameter(Mandatory)]$Window)
+    Start-FunctionMeasurement -FunctionName "Get-ModifiedQuickSetWrappers"
+    $FoundWrappers = [System.Collections.ArrayList]@()
+    $ActiveWrappers = Get-ActiveQuickSetWrappers -Window $Window
+    if ($ActiveWrappers) {
+        foreach ($Wrapper in $ActiveWrappers) {
+            if (Test-IsWrapperQuickSetModified -Wrapper $Wrapper) {
+                [void]$FoundWrappers.Add($Wrapper)
+            }
+        }
+    }
+    Stop-FunctionMeasurement -FunctionName "Get-ModifiedQuickSetWrappers"
+    return @($FoundWrappers)
+} # function Get-ModifiedQuickSetWrappers
 
 function Invoke-ExistingBadgeClick {
     param($s, $e)
@@ -2957,6 +5119,8 @@ function Invoke-QuickSetSetItemClick {
 
         if (-not ($WrapperToUpdate.Tag -is [hashtable])) { $WrapperToUpdate.Tag = @{} }
         $WrapperToUpdate.Tag.ActiveQuickSet = $TargetName
+        $CurrentVal = Get-WrapperQuickSetValue -Wrapper $WrapperToUpdate
+        $WrapperToUpdate.Tag.QuickSetSnapshot = (ConvertTo-Json -InputObject $CurrentVal -Depth 20)
         Update-QuickSetBadge -Wrapper $WrapperToUpdate -DisplayName $TargetName
 
         if ($MenuToUpdate) {
@@ -3076,6 +5240,16 @@ function Resolve-SearchBar {
     $Target = Resolve-TargetElement $ChildElement
     if (-not $Target) { return $null }
     if ($Target.Name -like "*$SearchBarNameSuffix") { return $Target }
+
+    $Current = $Target.Parent
+    while ($null -ne $Current) {
+        if ($Current.Name -like "*$SearchBarNameSuffix") {
+            Stop-FunctionMeasurement -FunctionName "Resolve-SearchBar"
+            return $Current
+        }
+        $Current = $Current.Parent
+    }
+
     $Found = Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $_.Name -like "*$SearchBarNameSuffix" } -DigProperties 'Parent' -FindMax 1
     if ($Found -is [array]) { return $Found[0] }
     Stop-FunctionMeasurement -FunctionName "Resolve-SearchBar"
@@ -3318,82 +5492,75 @@ function Test-ElementMatchesQuery {
 
     $MatchedParts = [System.Collections.ArrayList]@()
 
-    # 1. Match titles / property names inside element
-    if ($Element.Name -eq $ContentHeaderTitleValueName) {
-        if (& $TestString $Element.Text) {
-            [void]$MatchedParts.Add($Element)
-        }
+    # Unified single-pass match across all search candidates inside element
+    $AllItemsToTest = [System.Collections.ArrayList]@()
+    [void]$AllItemsToTest.Add($Element)
+    $CandidateElements = Find-ObjectWhere -Object ([ref]$Element) -FindWhere {
+        $_.Name -eq $ContentHeaderTitleValueName -or
+        $_.Name -eq $ContentHeaderDescriptionValueName -or
+        $_.Name -eq $ContentElementName -or
+        $_.Name -eq $CustomDateTimePickerName -or
+        $_.Name -like "*$IndexBoxNameSuffix"
     }
-    $TitleBlocks = Find-ObjectWhere -Object ([ref]$Element) -FindWhere { $_.Name -eq $ContentHeaderTitleValueName }
-    :Titles foreach ($TBlock in $TitleBlocks) {
-        if (& $TestString $TBlock.Text) {
-            [void]$MatchedParts.Add($TBlock)
-        }
-    }
-
-    # 2. Match descriptions inside element
-    if ($Element.Name -eq $ContentHeaderDescriptionValueName) {
-        if (& $TestString $Element.Text) {
-            [void]$MatchedParts.Add($Element)
-        }
-    }
-    $DescBlocks = Find-ObjectWhere -Object ([ref]$Element) -FindWhere { $_.Name -eq $ContentHeaderDescriptionValueName }
-    :Descs foreach ($DBlock in $DescBlocks) {
-        if (& $TestString $DBlock.Text) {
-            [void]$MatchedParts.Add($DBlock)
+    if ($CandidateElements) {
+        foreach ($Cand in $CandidateElements) {
+            [void]$AllItemsToTest.Add($Cand)
         }
     }
 
-    # 3. Match content controls inside element
-    $Contents = @()
-    if ($Element.Name -eq $ContentElementName) {
-        $Contents += $Element
-    }
-    $ChildContents = Find-ObjectWhere -Object ([ref]$Element) -FindWhere { $_.Name -eq $ContentElementName }
-    if ($ChildContents) {
-        $Contents += $ChildContents
-    }
-    :Contents foreach ($Content in $Contents) {
-        $Val = Get-ContentValue $Content
-        if ($null -ne $Val) {
-            $StrVal = "$Val"
-            if (& $TestString $StrVal) {
-                [void]$MatchedParts.Add($Content)
+    foreach ($Item in $AllItemsToTest) {
+        $ItemName = $Item.Name
+        if ($ItemName -eq $ContentHeaderTitleValueName) {
+            if (& $TestString $Item.Text) {
+                [void]$MatchedParts.Add($Item)
             }
         }
-        if ($Content -is [System.Windows.Controls.ComboBox] -and $Content.ItemsSource) {
-            foreach ($Item in $Content.ItemsSource) {
-                if ($Item -and (& $TestString "$Item")) {
-                    if (-not $MatchedParts.Contains($Content)) {
-                        [void]$MatchedParts.Add($Content)
+        elseif ($ItemName -eq $ContentHeaderDescriptionValueName) {
+            if (& $TestString $Item.Text) {
+                [void]$MatchedParts.Add($Item)
+            }
+        }
+        elseif ($ItemName -eq $ContentElementName) {
+            $Val = Get-ContentValue $Item
+            if ($null -ne $Val) {
+                $StrVal = "$Val"
+                if (& $TestString $StrVal) {
+                    [void]$MatchedParts.Add($Item)
+                }
+            }
+            if ($Item -is [System.Windows.Controls.ComboBox] -and $Item.ItemsSource) {
+                foreach ($Opt in $Item.ItemsSource) {
+                    if ($Opt -and (& $TestString "$Opt")) {
+                        if (-not $MatchedParts.Contains($Item)) {
+                            [void]$MatchedParts.Add($Item)
+                        }
+                        break
                     }
-                    break
                 }
             }
         }
-    }
-
-    # 4. Match DateTime pickers inside element
-    $DateTimePickers = Find-ObjectWhere -Object ([ref]$Element) -FindWhere { $_.Name -eq $CustomDateTimePickerName }
-    :DTPs foreach ($DTP in $DateTimePickers) {
-        $DateBox = Find-ObjectWhere -Object ([ref]$DTP) -FindWhere { $_.Name -eq $ContentDateTimeDisplayTextBoxName } -FindMax 1
-        if ($DateBox -and (& $TestString $DateBox.Text)) {
-            [void]$MatchedParts.Add($DateBox)
-        }
-    }
-
-    # 5. Match Index boxes inside element
-    $IndexBoxes = Find-ObjectWhere -Object ([ref]$Element) -FindWhere { $_.Name -like "*$IndexBoxNameSuffix" }
-    :Indices foreach ($IBox in $IndexBoxes) {
-        if ($IBox.Text) {
-            $IVal = $IBox.Text.Trim()
-            if ($CompiledRegex) {
-                if ($CompiledRegex.IsMatch($IVal)) {
-                    [void]$MatchedParts.Add($IBox)
-                }
+        elseif ($ItemName -eq $CustomDateTimePickerName) {
+            $DateBox = if ($Item.Tag -is [hashtable] -and $Item.Tag.ContainsKey('DisplayTextBox') -and $Item.Tag.DisplayTextBox) {
+                $Item.Tag.DisplayTextBox
             }
-            elseif ($IVal -eq $Query.Trim()) {
-                [void]$MatchedParts.Add($IBox)
+            else {
+                Find-ObjectWhere -Object ([ref]$Item) -FindWhere { $_.Name -eq $ContentDateTimeDisplayTextBoxName } -FindMax 1
+            }
+            if ($DateBox -and (& $TestString $DateBox.Text)) {
+                [void]$MatchedParts.Add($DateBox)
+            }
+        }
+        elseif ($ItemName -like "*$IndexBoxNameSuffix") {
+            if ($Item.Text) {
+                $IVal = $Item.Text.Trim()
+                if ($CompiledRegex) {
+                    if ($CompiledRegex.IsMatch($IVal)) {
+                        [void]$MatchedParts.Add($Item)
+                    }
+                }
+                elseif ($IVal -eq $Query.Trim()) {
+                    [void]$MatchedParts.Add($Item)
+                }
             }
         }
     }
@@ -3602,7 +5769,12 @@ function Step-SearchMatch {
     Set-ElementHighlight -Element ([ref]$Matches[$NewIdx]) -HighlightType 'Active' -Query $Query -CompiledRegex $CompiledRegex
     $Matches[$NewIdx].BringIntoView()
 
-    $CountBlock = Find-ObjectWhere -Object ([ref]$SearchBar) -FindWhere { $_.Name -like "*$SearchCountNameSuffix" } -FindMax 1
+    $CountBlock = if ($SearchBar.Tag -is [hashtable] -and $SearchBar.Tag.ContainsKey('SearchCount') -and $SearchBar.Tag.SearchCount) {
+        $SearchBar.Tag.SearchCount
+    }
+    else {
+        Find-ObjectWhere -Object ([ref]$SearchBar) -FindWhere { $_.Name -like "*$SearchCountNameSuffix" } -FindMax 1
+    }
     if ($CountBlock) {
         $CountBlock.Text = "$($NewIdx + 1) / $($Matches.Count)"
         $CountBlock.Foreground = '#C1B8D1'
@@ -3620,11 +5792,16 @@ function Get-WrapperSearchState {
 
     # Stop at child wrappers so we only inspect the search bar of this wrapper
     $StopAtChild = { @($ContentHeaderBorderName, $ContentBorderName) -contains $_.Name }
-    $SearchBar = if ($Tag.ContainsKey('SearchBar') -and $Tag.SearchBar) { $Tag.SearchBar } else { Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $_.Name -like "*$SearchBarNameSuffix" } -DepthMax 0 -DepthWhere $StopAtChild -FindMax 1 }
+    $SearchBar = if ($Tag.ContainsKey('SearchBar')) { $Tag.SearchBar } else { Find-ObjectWhere -Object ([ref]$Target) -FindWhere { $_.Name -like "*$SearchBarNameSuffix" } -DepthMax 0 -DepthWhere $StopAtChild -FindMax 1 }
     if ($SearchBar -is [array]) { $SearchBar = $SearchBar[0] }
     if (-not $SearchBar) { return $null }
 
-    $SearchInput = Find-ObjectWhere -Object ([ref]$SearchBar) -FindWhere { $_.Name -like "*$SearchInputNameSuffix" } -FindMax 1
+    $SearchInput = if ($SearchBar.Tag -is [hashtable] -and $SearchBar.Tag.ContainsKey('SearchInput') -and $SearchBar.Tag.SearchInput) {
+        $SearchBar.Tag.SearchInput
+    }
+    else {
+        Find-ObjectWhere -Object ([ref]$SearchBar) -FindWhere { $_.Name -like "*$SearchInputNameSuffix" } -FindMax 1
+    }
     if ($SearchInput -is [array]) { $SearchInput = $SearchInput[0] }
     if (-not $SearchInput) { return $null }
 
@@ -3750,6 +5927,10 @@ function Set-WrapperSearchState {
         }
 
         $SearchBar.Visibility = 'Visible'
+        if ($script:UniversalSharedMenu) {
+            $SharedMenuItem = Find-ObjectWhere -Object ([ref]$script:UniversalSharedMenu) -FindWhere { $_.Name -eq $ButtonMenuName } -FindMax 1
+            if ($SharedMenuItem) { $SharedMenuItem.IsSubmenuOpen = $false }
+        }
     }
     else {
         $SearchBar.Visibility = 'Collapsed'
@@ -3763,35 +5944,35 @@ function Set-WrapperSearchState {
 
         # Defer execution to background dispatcher frame so UI renders immediately
         $DeferredSearchAction = ({
-            if (-not $SearchInput) { return }
-            Invoke-SearchExecution -SearchBox $SearchInput
+                if (-not $SearchInput) { return }
+                Invoke-SearchExecution -SearchBox $SearchInput
 
-            # If a specific match index was saved and matches exist, navigate to that index
-            if ($IsOpen -and $SearchBar.Tag -and $SearchBar.Tag.Matches -and $SearchBar.Tag.Matches.Count -gt 0) {
-                $MatchCount = $SearchBar.Tag.Matches.Count
-                if ($TargetCurrentIndex -lt 0) { $TargetCurrentIndex = 0 }
-                if ($TargetCurrentIndex -ge $MatchCount) { $TargetCurrentIndex = $MatchCount - 1 }
+                # If a specific match index was saved and matches exist, navigate to that index
+                if ($IsOpen -and $SearchBar.Tag -and $SearchBar.Tag.Matches -and $SearchBar.Tag.Matches.Count -gt 0) {
+                    $MatchCount = $SearchBar.Tag.Matches.Count
+                    if ($TargetCurrentIndex -lt 0) { $TargetCurrentIndex = 0 }
+                    if ($TargetCurrentIndex -ge $MatchCount) { $TargetCurrentIndex = $MatchCount - 1 }
 
-                if ($TargetCurrentIndex -ne $SearchBar.Tag.CurrentIndex) {
-                    $OldIdx = $SearchBar.Tag.CurrentIndex
-                    $CompiledRegex = if ($SearchBar.Tag.ContainsKey('CompiledRegex')) { $SearchBar.Tag.CompiledRegex } else { $null }
+                    if ($TargetCurrentIndex -ne $SearchBar.Tag.CurrentIndex) {
+                        $OldIdx = $SearchBar.Tag.CurrentIndex
+                        $CompiledRegex = if ($SearchBar.Tag.ContainsKey('CompiledRegex')) { $SearchBar.Tag.CompiledRegex } else { $null }
 
-                    if ($OldIdx -ge 0 -and $OldIdx -lt $MatchCount) {
-                        Set-ElementHighlight -Element ([ref]$SearchBar.Tag.Matches[$OldIdx]) -HighlightType 'Match' -Query $Query -CompiledRegex $CompiledRegex
-                    }
+                        if ($OldIdx -ge 0 -and $OldIdx -lt $MatchCount) {
+                            Set-ElementHighlight -Element ([ref]$SearchBar.Tag.Matches[$OldIdx]) -HighlightType 'Match' -Query $Query -CompiledRegex $CompiledRegex
+                        }
 
-                    $SearchBar.Tag.CurrentIndex = $TargetCurrentIndex
-                    Set-ElementHighlight -Element ([ref]$SearchBar.Tag.Matches[$TargetCurrentIndex]) -HighlightType 'Active' -Query $Query -CompiledRegex $CompiledRegex
-                    $SearchBar.Tag.Matches[$TargetCurrentIndex].BringIntoView()
+                        $SearchBar.Tag.CurrentIndex = $TargetCurrentIndex
+                        Set-ElementHighlight -Element ([ref]$SearchBar.Tag.Matches[$TargetCurrentIndex]) -HighlightType 'Active' -Query $Query -CompiledRegex $CompiledRegex
+                        $SearchBar.Tag.Matches[$TargetCurrentIndex].BringIntoView()
 
-                    $CountBlock = Find-ObjectWhere -Object ([ref]$SearchBar) -FindWhere { $_.Name -like "*$SearchCountNameSuffix" } -FindMax 1
-                    if ($CountBlock) {
-                        $CountBlock.Text = "$($TargetCurrentIndex + 1) / $MatchCount"
-                        $CountBlock.Foreground = '#C1B8D1'
+                        $CountBlock = Find-ObjectWhere -Object ([ref]$SearchBar) -FindWhere { $_.Name -like "*$SearchCountNameSuffix" } -FindMax 1
+                        if ($CountBlock) {
+                            $CountBlock.Text = "$($TargetCurrentIndex + 1) / $MatchCount"
+                            $CountBlock.Foreground = '#C1B8D1'
+                        }
                     }
                 }
-            }
-        }).GetNewClosure()
+            }).GetNewClosure()
 
         [System.Windows.Threading.Dispatcher]::CurrentDispatcher.BeginInvoke(
             [System.Windows.Threading.DispatcherPriority]::Background,
@@ -4001,6 +6182,9 @@ function Invoke-SearchMatchesSort {
             }
             if ($null -eq $CandidateKey) {
                 $CandidateKey = Get-WrapperDisplayName -Wrapper $ArrayItemWrapper
+            }
+            if ($null -eq $CandidateKey) {
+                $CandidateKey = Get-ArrayItemSortKey -ItemWrapper $ArrayItemWrapper
             }
         }
 
@@ -4363,7 +6547,7 @@ function New-ContentDateTime {
     }
     [System.Windows.Controls.Grid]::SetColumn($TextBox, 0)
     $Grid.Children.Add($TextBox) | Out-Null
-    $Grid.Tag = @{ DateBox = $TextBox }
+    $Grid.Tag = @{ DateBox = $TextBox; DisplayTextBox = $TextBox }
 
     $PickButton = New-BaseButton @{
         Content           = ' 📅 '
@@ -4639,8 +6823,22 @@ function New-IndexBox {
     $IndexBlock.Add_KeyDown({
             param($s, $e)
             if ($e.Key -eq 'Enter' -or $e.Key -eq 'Return') {
-                $IndexBlockParent = Find-ObjectWhere -Object ([ref]$s) -FindWhere { $_.Name -eq "$($s.Name.Replace("_$IndexBoxNameSuffix", ''))" } -DigProperties 'Parent' -FindMax 1
-                $Content = Find-ObjectWhere -Object ([ref]$IndexBlockParent) -FindWhere { $_.Name -eq $ContentElementName } -FindMax 1
+                $ExpectedName = $s.Name.Replace("_$IndexBoxNameSuffix", '')
+                $IndexBlockParent = $null
+                $Curr = $s.Parent
+                while ($null -ne $Curr) {
+                    if ($Curr.Name -eq $ExpectedName) { $IndexBlockParent = $Curr; break }
+                    $Curr = $Curr.Parent
+                }
+                if (-not $IndexBlockParent) {
+                    $IndexBlockParent = Find-ObjectWhere -Object ([ref]$s) -FindWhere { $_.Name -eq $ExpectedName } -DigProperties 'Parent' -FindMax 1
+                }
+                $Content = if ($IndexBlockParent -and $IndexBlockParent.Tag -is [hashtable] -and $IndexBlockParent.Tag.ContainsKey('Content') -and $IndexBlockParent.Tag.Content) {
+                    $IndexBlockParent.Tag.Content
+                }
+                else {
+                    Find-ObjectWhere -Object ([ref]$IndexBlockParent) -FindWhere { $_.Name -eq $ContentElementName } -FindMax 1
+                }
                 if ($Content) { $Content.Focus() }
             }
         }
@@ -4649,7 +6847,16 @@ function New-IndexBox {
             param($s, $e)
 
             # This section moves the item to the new index if the user has changed it.
-            $ArrayItem = Find-ObjectWhere -Object ([ref]$s) -FindWhere { $_.Name -eq "$($s.Name.Replace("_$IndexBoxNameSuffix", ''))" } -DigProperties 'Parent' -FindMax 1
+            $ExpectedName = $s.Name.Replace("_$IndexBoxNameSuffix", '')
+            $ArrayItem = $null
+            $Curr = $s.Parent
+            while ($null -ne $Curr) {
+                if ($Curr.Name -eq $ExpectedName) { $ArrayItem = $Curr; break }
+                $Curr = $Curr.Parent
+            }
+            if (-not $ArrayItem) {
+                $ArrayItem = Find-ObjectWhere -Object ([ref]$s) -FindWhere { $_.Name -eq $ExpectedName } -DigProperties 'Parent' -FindMax 1
+            }
             $Array = $ArrayItem.Parent
             $CurrentIndex = $Array.Children.IndexOf($ArrayItem)
             $NewIndexText = $s.Text
@@ -4927,6 +7134,9 @@ function New-SearchBar {
         UseRegex      = $true
         CompiledRegex = $null
         Query         = ''
+        SearchInput   = $SearchInput
+        SearchCount   = $MatchCount
+        RegexButton   = $RegexButton
     }
 
     $SearchInput.Add_TextChanged({
@@ -5414,25 +7624,62 @@ function Invoke-RandomValuesButtonClick {
     Stop-FunctionMeasurement -FunctionName 'Invoke-RandomValuesButtonClick'
 } # function Invoke-RandomValuesButtonClick
 
+function Invoke-RandomValuesSettingsButtonClick {
+    param($s, $e)
+    Start-FunctionMeasurement -FunctionName 'Invoke-RandomValuesSettingsButtonClick'
+    $TargetElement = if ($s -and $s.TemplatedParent) { $s.TemplatedParent } else { $s }
+    $ContentWrapper = Get-ContentWrapperFromButton -Button $TargetElement -Suffix $RandomValuesButtonNameSuffix
+    if (-not $ContentWrapper -and $script:UniversalSharedMenu -and $script:UniversalSharedMenu.Tag -is [hashtable]) {
+        $ContentWrapper = $script:UniversalSharedMenu.Tag.ActiveWrapper
+    }
+
+    if ($script:UniversalSharedMenu) {
+        $ButtonMenuItem = Find-ObjectWhere -Object ([ref]$script:UniversalSharedMenu) -FindWhere { $_.Name -eq $ButtonMenuName } -FindMax 1
+        if ($ButtonMenuItem) { $ButtonMenuItem.IsSubmenuOpen = $false }
+    }
+
+    $ConfigurationResult = Show-RandomValuesConfigurationDialog -Wrapper $ContentWrapper
+    if ($ConfigurationResult -and $ConfigurationResult.SaveAndUse -and $ContentWrapper) {
+        Set-WrapperRandomContent -Wrapper ([ref]$ContentWrapper)
+    }
+
+    Stop-FunctionMeasurement -FunctionName 'Invoke-RandomValuesSettingsButtonClick'
+} # function Invoke-RandomValuesSettingsButtonClick
+
 function Invoke-DisableEnableButtonClick {
     param($s, $e)
     Start-FunctionMeasurement -FunctionName 'Invoke-DisableEnableButtonClick'
-    if ((Get-IsLocked $s)) { return }
-    $IsAll = $s.Header -like '* All' -or ($s.Tag -is [hashtable] -and $s.Tag.IsAll)
-    $TargetDisabledState = ($s.Icon -eq $DisableEnableButtonIconEnabled)
+    $TargetWrapper = if ($script:UniversalSharedMenu -and $script:UniversalSharedMenu.Tag -is [hashtable] -and $script:UniversalSharedMenu.Tag.ActiveWrapper) {
+        $script:UniversalSharedMenu.Tag.ActiveWrapper
+    }
+    else {
+        Get-ParentWrapperBorder -Element $s
+    }
+    if (-not $TargetWrapper) {
+        Stop-FunctionMeasurement -FunctionName 'Invoke-DisableEnableButtonClick'
+        return
+    }
 
-    Set-DisableEnableButtonVisualState -Button $s -IsDisabled $TargetDisabledState
+    if ((Get-IsLocked $TargetWrapper)) {
+        Stop-FunctionMeasurement -FunctionName 'Invoke-DisableEnableButtonClick'
+        return
+    }
 
+    $CurrentlyDisabled = ($TargetWrapper.Tag -is [hashtable] -and $TargetWrapper.Tag.ContainsKey('IsDisabled') -and $TargetWrapper.Tag.IsDisabled)
+    $NewDisabledState = -not $CurrentlyDisabled
+
+    $IsAll = ($s.Header -like '* All') -or ($s.Tag -is [hashtable] -and $s.Tag.IsAll)
     if ($IsAll) {
-        $ContentWrapper = Get-ContentWrapperFromButton -Button $s -Suffix $DisableEnableButtonNameSuffix
-        $ChildButtons = Find-ObjectWhere -Object ([ref]$ContentWrapper) -FindWhere { $_.Name -like "*$DisableEnableButtonNameSuffix" -and $_ -ne $s }
-        :ChildButtons foreach ($ChildButton in $ChildButtons) {
-            if ((Get-IsLocked $ChildButton)) { continue ChildButtons }
-            Set-DisableEnableButtonVisualState -Button $ChildButton -IsDisabled $TargetDisabledState
+        $ContentSlot = Get-WrapperContentSlot -Wrapper $TargetWrapper
+        if ($ContentSlot) {
+            foreach ($Child in @($ContentSlot.Children)) {
+                if (Get-IsLocked $Child) { continue }
+                Set-TargetDisabledState -Target $Child -IsDisabled $NewDisabledState
+            }
         }
     }
     else {
-        Confirm-ArrayEnableButton -Item ([ref]$s)
+        Set-TargetDisabledState -Target $TargetWrapper -IsDisabled $NewDisabledState
     }
 
     Stop-FunctionMeasurement -FunctionName 'Invoke-DisableEnableButtonClick'
@@ -5454,6 +7701,7 @@ function Invoke-DeleteButtonClick {
     }
     else {
         if ((Get-IsLocked $ContentWrapper)) { return }
+        Detach-UniversalSharedMenu -TargetWrapper $ContentWrapper
         $Array = $ContentWrapper.Parent
         if ($Array) {
             $Array.Children.Remove($ContentWrapper)
@@ -5514,20 +7762,21 @@ function Invoke-SearchButtonClick {
 function Invoke-LockUnlockButtonClick {
     param($s, $e)
     Start-FunctionMeasurement -FunctionName 'Invoke-LockUnlockButtonClick'
-    switch ($s.Icon) {
-        $LockUnlockButtonIconLocked {
-            $s.Header = $LockUnlockButtonHeaderUnlocked
-            $s.Icon = $LockUnlockButtonIconUnlocked
-            Move-MenuItemBetweenMenus -Item $s -Direction 'ToButtonMenu'
-            Set-LockableButtonsState -LockButton $s -IsEnabled $true
-        }
-        $LockUnlockButtonIconUnlocked {
-            $s.Header = $LockUnlockButtonHeaderLocked
-            $s.Icon = $LockUnlockButtonIconLocked
-            Move-MenuItemBetweenMenus -Item $s -Direction 'ToCustomMenu'
-            Set-LockableButtonsState -LockButton $s -IsEnabled $false
-        }
+    $TargetWrapper = if ($script:UniversalSharedMenu -and $script:UniversalSharedMenu.Tag -is [hashtable] -and $script:UniversalSharedMenu.Tag.ActiveWrapper) {
+        $script:UniversalSharedMenu.Tag.ActiveWrapper
     }
+    else {
+        Get-ParentWrapperBorder -Element $s
+    }
+    if (-not $TargetWrapper) {
+        Stop-FunctionMeasurement -FunctionName 'Invoke-LockUnlockButtonClick'
+        return
+    }
+
+    $CurrentlyLocked = ($TargetWrapper.Tag -is [hashtable] -and $TargetWrapper.Tag.ContainsKey('IsLocked') -and $TargetWrapper.Tag.IsLocked)
+    $NewLockedState = -not $CurrentlyLocked
+
+    Set-TargetLockedState -Target $TargetWrapper -IsLocked $NewLockedState
 
     Stop-FunctionMeasurement -FunctionName 'Invoke-LockUnlockButtonClick'
 } # function Invoke-LockUnlockButtonClick
@@ -5780,12 +8029,6 @@ function Get-ArrayItemSortKey {
     $TargetItem = Resolve-TargetElement $ItemWrapper
     if (-not $TargetItem) { return $null }
 
-    if ($SortByTitle) {
-        $DisplayName = Get-WrapperDisplayName -Wrapper $TargetItem
-        if ([string]::IsNullOrWhiteSpace($DisplayName)) { return $null }
-        return $DisplayName.Trim()
-    }
-
     $CurrentWrapper = $TargetItem
     if ($PropertyPath -and $PropertyPath.Count -gt 0) {
         foreach ($StepName in $PropertyPath) {
@@ -5811,11 +8054,55 @@ function Get-ArrayItemSortKey {
             }
             $CurrentWrapper = $MatchedChild
         }
+        if (-not $CurrentWrapper) { return $null }
+        Stop-FunctionMeasurement -FunctionName "Get-ArrayItemSortKey"
+        return (Get-WrapperSortableScalarValue -Wrapper $CurrentWrapper -SortByArrayCount:$SortByArrayCount)
     }
 
-    if (-not $CurrentWrapper) { return $null }
+    $TitleElement = Get-WrapperHeaderTitleElement -Wrapper $TargetItem
+    if (-not $TitleElement -and $TargetItem.Name -eq $ContentHeaderBorderName) {
+        $FoundTitleElement = Find-ObjectWhere -Object ([ref]$TargetItem) -FindWhere { $_.Name -eq $ContentHeaderTitleValueName } -FindMax 1
+        if ($FoundTitleElement -is [array]) { $FoundTitleElement = $FoundTitleElement[0] }
+        $TitleElement = $FoundTitleElement
+    }
+    $HasHeader = ($null -ne $TitleElement) -or ($TargetItem.Name -eq $ContentHeaderBorderName)
+
+    if ($SortByTitle -or $HasHeader) {
+        $TitleValue = if ($TitleElement -and -not [string]::IsNullOrWhiteSpace($TitleElement.Text)) {
+            $TitleElement.Text
+        }
+        elseif ($TargetItem.Tag -is [hashtable] -and $TargetItem.Tag.ContainsKey('OriginalTitle') -and -not [string]::IsNullOrWhiteSpace($TargetItem.Tag.OriginalTitle)) {
+            $TargetItem.Tag.OriginalTitle
+        }
+        else {
+            $DisplayName = Get-WrapperDisplayName -Wrapper $TargetItem
+            if (-not [string]::IsNullOrWhiteSpace($DisplayName)) {
+                $DisplayName
+            }
+            else {
+                $FoundTitle = Find-Title $TargetItem
+                if ($FoundTitle) { ($FoundTitle.Split('-')[0]).Trim() } else { $null }
+            }
+        }
+
+        if ([string]::IsNullOrWhiteSpace($TitleValue)) {
+            Stop-FunctionMeasurement -FunctionName "Get-ArrayItemSortKey"
+            return $null
+        }
+
+        $TrimmedTitle = $TitleValue.Trim()
+        $ParsedNumber = [decimal]0
+        if ([decimal]::TryParse($TrimmedTitle, [ref]$ParsedNumber)) {
+            Stop-FunctionMeasurement -FunctionName "Get-ArrayItemSortKey"
+            return $ParsedNumber
+        }
+
+        Stop-FunctionMeasurement -FunctionName "Get-ArrayItemSortKey"
+        return $TrimmedTitle
+    }
+
     Stop-FunctionMeasurement -FunctionName "Get-ArrayItemSortKey"
-    return (Get-WrapperSortableScalarValue -Wrapper $CurrentWrapper -SortByArrayCount:$SortByArrayCount)
+    return (Get-WrapperSortableScalarValue -Wrapper $TargetItem -SortByArrayCount:$SortByArrayCount)
 } # function Get-ArrayItemSortKey
 
 function Invoke-ArraySort {
@@ -5834,6 +8121,9 @@ function Invoke-ArraySort {
     $ArrayWrapper = Resolve-TargetElement (Find-ObjectWhere -Object ([ref]$TargetSender) -FindWhere { $_.Name -eq $ActionFrom } -DigProperties 'Parent' -FindMax 1)
     if (-not $ArrayWrapper) {
         $ArrayWrapper = Get-ParentWrapperBorder -Element $TargetSender -HeaderOnly
+    }
+    if (-not $ArrayWrapper -and $script:UniversalSharedMenu -and $script:UniversalSharedMenu.Tag -is [hashtable]) {
+        $ArrayWrapper = $script:UniversalSharedMenu.Tag.ActiveWrapper
     }
     if (-not $ArrayWrapper) { return }
     if (Get-IsElementLockedSelf $ArrayWrapper) { return }
@@ -6050,7 +8340,8 @@ function Get-WrapperTypeClipboardKey {
     $IsArray = ($Target.Tag -is [hashtable] -and $Target.Tag.IsArray)
     if (-not $IsArray) {
         $TitleText = Find-Title $Target
-        $IsArray = ($TitleText -like '*`[]')
+        $CleanTitleText = if ($TitleText) { [System.Text.RegularExpressions.Regex]::Replace($TitleText, '\[.*?\]', '[]') } else { $TitleText }
+        $IsArray = ($CleanTitleText -like '*`[]')
     }
 
     if ($IsArray) {
@@ -6394,30 +8685,30 @@ function New-CopyAsMenuItem {
 
     $PopulatedState = @{ IsPopulated = $false }
     $CopyAsMenu.Add_SubmenuOpened(({
-        param($s, $e)
-        if ($e.Source -ne $s) { return }
-        if ($PopulatedState.IsPopulated) { return }
-        $PopulatedState.IsPopulated = $true
-        $s.Items.Clear()
+                param($s, $e)
+                if ($e.Source -ne $s) { return }
+                if ($PopulatedState.IsPopulated) { return }
+                $PopulatedState.IsPopulated = $true
+                $s.Items.Clear()
 
-        $Formats = @(
-            @{ Format = 'JSON'; NameSuffix = $CopyAsJsonButtonNameSuffix; Header = $CopyAsJsonHeader; Icon = $CopyAsJsonIcon; ToolTip = $CopyAsJsonToolTip },
-            @{ Format = 'XML'; NameSuffix = $CopyAsXmlButtonNameSuffix; Header = $CopyAsXmlHeader; Icon = $CopyAsXmlIcon; ToolTip = $CopyAsXmlToolTip },
-            @{ Format = 'CSV'; NameSuffix = $CopyAsCsvButtonNameSuffix; Header = $CopyAsCsvHeader; Icon = $CopyAsCsvIcon; ToolTip = $CopyAsCsvToolTip }
-        )
+                $Formats = @(
+                    @{ Format = 'JSON'; NameSuffix = $CopyAsJsonButtonNameSuffix; Header = $CopyAsJsonHeader; Icon = $CopyAsJsonIcon; ToolTip = $CopyAsJsonToolTip },
+                    @{ Format = 'XML'; NameSuffix = $CopyAsXmlButtonNameSuffix; Header = $CopyAsXmlHeader; Icon = $CopyAsXmlIcon; ToolTip = $CopyAsXmlToolTip },
+                    @{ Format = 'CSV'; NameSuffix = $CopyAsCsvButtonNameSuffix; Header = $CopyAsCsvHeader; Icon = $CopyAsCsvIcon; ToolTip = $CopyAsCsvToolTip }
+                )
 
-        foreach ($Fmt in $Formats) {
-            $FmtItem = New-BaseMenuItem @{
-                Name          = "$ActionFrom`_$($Fmt.NameSuffix)"
-                Header        = $Fmt.Header
-                Icon          = $Fmt.Icon
-                ToolTip       = $Fmt.ToolTip
-                FlowDirection = 'LeftToRight'
-            }
-            Add-CopyScopeMenuItems -ParentMenuItem $FmtItem -ActionFrom $ActionFrom -Format $Fmt.Format
-            $s.Items.Add($FmtItem) | Out-Null
-        }
-    }).GetNewClosure())
+                foreach ($Fmt in $Formats) {
+                    $FmtItem = New-BaseMenuItem @{
+                        Name          = "$ActionFrom`_$($Fmt.NameSuffix)"
+                        Header        = $Fmt.Header
+                        Icon          = $Fmt.Icon
+                        ToolTip       = $Fmt.ToolTip
+                        FlowDirection = 'LeftToRight'
+                    }
+                    Add-CopyScopeMenuItems -ParentMenuItem $FmtItem -ActionFrom $ActionFrom -Format $Fmt.Format
+                    $s.Items.Add($FmtItem) | Out-Null
+                }
+            }).GetNewClosure())
 
     $ReturnValue = $CopyAsMenu
     Stop-FunctionMeasurement -FunctionName 'New-CopyAsMenuItem'
@@ -6538,6 +8829,17 @@ function Set-WrapperActionButtonsLazy {
         return
     }
 
+    if (-not ($TargetElement.Tag -is [hashtable])) { $TargetElement.Tag = @{} }
+    $TargetElement.Tag.ActionButtonsConfiguration = @{
+        ActionFrom              = $ActionFrom
+        IsBatch                 = [bool]$IsBatch
+        IsConstruct             = [bool]$IsConstruct
+        IncludeSearch           = [bool]$IncludeSearch
+        IncludeArrayItemActions = [bool]$IncludeArrayItemActions
+        TargetType              = $TargetType
+    }
+    $TargetElement.Tag.ActionButtonsPopulated = $false
+
     $Menu = Get-WrapperMenu -Wrapper $TargetElement
     if (-not $Menu) {
         Stop-FunctionMeasurement -FunctionName "Set-WrapperActionButtonsLazy"
@@ -6613,6 +8915,12 @@ function Ensure-WrapperActionButtons {
 
         Add-ChildrenToItemsButtonMenu ([ref]$Wrapper) $Buttons
         $ButtonMenu.Tag.ActionButtonsPopulated = $true
+        if (-not $ButtonMenu.Tag.ButtonsByName) { $ButtonMenu.Tag.ButtonsByName = @{} }
+        foreach ($Btn in $Buttons) {
+            if ($Btn -and $Btn.Name) {
+                $ButtonMenu.Tag.ButtonsByName[$Btn.Name] = $Btn
+            }
+        }
 
         if ($Configuration.IsBatch) {
             Update-ArrayButtonsState -Wrapper $Wrapper
@@ -6643,6 +8951,30 @@ function New-ClearButton {
     return $ReturnValue
 } # function New-ClearButton
 
+function Attach-RandomValuesGearHandler {
+    param($TargetItem)
+    Start-FunctionMeasurement -FunctionName 'Attach-RandomValuesGearHandler'
+    if (-not $TargetItem -or -not $TargetItem.Template) {
+        Stop-FunctionMeasurement -FunctionName 'Attach-RandomValuesGearHandler'
+        return
+    }
+    $Gear = $TargetItem.Template.FindName('PART_GearButton', $TargetItem)
+    if ($Gear -and -not $Gear.Tag) {
+        $Gear.Tag = $true
+        $Gear.Add_PreviewMouseLeftButtonDown({
+                param($s, $e)
+                $e.Handled = $true
+                Invoke-RandomValuesSettingsButtonClick $s $e
+            })
+        $Gear.Add_Click({
+                param($s, $e)
+                $e.Handled = $true
+                Invoke-RandomValuesSettingsButtonClick $s $e
+            })
+    }
+    Stop-FunctionMeasurement -FunctionName 'Attach-RandomValuesGearHandler'
+} # function Attach-RandomValuesGearHandler
+
 function New-RandomValuesButton {
     param(
         [string]$Header = $RandomValuesButtonHeader,
@@ -6651,12 +8983,53 @@ function New-RandomValuesButton {
     )
     Start-FunctionMeasurement -FunctionName 'New-RandomValuesButton'
 
+    $RandomValuesMenuItemTemplateXaml = @"
+<ControlTemplate TargetType="MenuItem" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Border Name="templateRoot" BorderThickness="1" BorderBrush="Transparent" Background="Transparent" SnapsToDevicePixels="True">
+        <Grid Margin="-1,-1,-1,-1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" MinWidth="22" SharedSizeGroup="MenuItemIconColumnGroup" />
+                <ColumnDefinition Width="13" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="30" />
+                <ColumnDefinition Width="Auto" SharedSizeGroup="MenuItemIGTColumnGroup" />
+                <ColumnDefinition Width="20" />
+            </Grid.ColumnDefinitions>
+            <ContentPresenter ContentSource="Icon" Margin="3" HorizontalAlignment="Center" VerticalAlignment="Center" SnapsToDevicePixels="True" />
+            <ContentPresenter ContentSource="Header" Grid.Column="2" HorizontalAlignment="Left" VerticalAlignment="Center" SnapsToDevicePixels="True" />
+            <Button Name="PART_GearButton" Content="$RandomValuesSettingsButtonIcon" ToolTip="$RandomValuesSettingsButtonToolTip" Grid.Column="4" Grid.ColumnSpan="2" HorizontalAlignment="Right" VerticalAlignment="Center" Width="20" Height="20" Background="Transparent" BorderThickness="0" Margin="0,0,4,0" Cursor="Hand" FontSize="12" FontFamily="$FontFamily" Foreground="{Binding RelativeSource={RelativeSource AncestorType=MenuItem}, Path=Foreground}" />
+        </Grid>
+    </Border>
+    <ControlTemplate.Triggers>
+        <Trigger Property="IsHighlighted" Value="True">
+            <Setter TargetName="templateRoot" Property="Background" Value="#3D26A0DA" />
+            <Setter TargetName="templateRoot" Property="BorderBrush" Value="#FF26A0DA" />
+        </Trigger>
+        <Trigger Property="IsEnabled" Value="False">
+            <Setter TargetName="templateRoot" Property="TextElement.Foreground" Value="#FF707070" />
+        </Trigger>
+    </ControlTemplate.Triggers>
+</ControlTemplate>
+"@
+
+    $Template = [System.Windows.Markup.XamlReader]::Parse($RandomValuesMenuItemTemplateXaml)
+
     $RandomValuesButton = New-BaseMenuItem @{
-        Name    = "$ActionFrom`_$RandomValuesButtonNameSuffix"
-        Header  = $Header
-        Icon    = $RandomValuesButtonIcon
-        ToolTip = $ToolTip
+        Name     = "$ActionFrom`_$RandomValuesButtonNameSuffix"
+        Header   = $Header
+        Icon     = $RandomValuesButtonIcon
+        ToolTip  = $ToolTip
+        Template = $Template
     }
+
+    $RandomValuesButton.ApplyTemplate() | Out-Null
+    Attach-RandomValuesGearHandler -TargetItem $RandomValuesButton
+
+    $RandomValuesButton.Add_Loaded({
+            param($s, $e)
+            Attach-RandomValuesGearHandler -TargetItem $s
+        })
+
     $RandomValuesButton.Add_Click({ param($s, $e) Invoke-RandomValuesButtonClick $s $e })
     Add-LockableButtonToolTip -Button $RandomValuesButton -ToolTip $ToolTip
     $ReturnValue = $RandomValuesButton
@@ -6814,8 +9187,26 @@ function Get-DisableEnableButtonToolTip {
     $IsAll = $Button.Header -like '* All' -or ($Button.Tag -is [hashtable] -and $Button.Tag.IsAll)
     $IsDisabled = $Button.Icon -eq $DisableEnableButtonIconDisabled
     if ($IsAll) {
-        if ($IsDisabled) { return $DisableEnableButtonAllToolTipDisabled }
-        return $DisableEnableButtonAllToolTipEnabled
+        $BaseToolTip = if ($IsDisabled) { $DisableEnableButtonAllToolTipDisabled } else { $DisableEnableButtonAllToolTipEnabled }
+        $ParentWrapper = Get-ParentWrapperBorder -Element $Button -HeaderOnly
+        if ($ParentWrapper) {
+            $ContentSlot = Get-WrapperContentSlot -Wrapper $ParentWrapper
+            if ($ContentSlot -and $ContentSlot.Children.Count -gt 0) {
+                $TotalCount = $ContentSlot.Children.Count
+                $LockedCount = 0
+                $DisabledCount = 0
+                foreach ($Child in @($ContentSlot.Children)) {
+                    if (Get-IsLocked $Child) { $LockedCount++ }
+                    if ($Child.Tag -is [hashtable] -and $Child.Tag.ContainsKey('IsDisabled') -and $Child.Tag.IsDisabled) { $DisabledCount++ }
+                }
+                $EnabledCount = $TotalCount - $DisabledCount
+                $CountsNote = "Items: $TotalCount total ($EnabledCount enabled, $DisabledCount disabled, $LockedCount locked)"
+                Stop-FunctionMeasurement -FunctionName "Get-DisableEnableButtonToolTip"
+                return "$BaseToolTip`n$CountsNote"
+            }
+        }
+        Stop-FunctionMeasurement -FunctionName "Get-DisableEnableButtonToolTip"
+        return $BaseToolTip
     }
     if ($IsDisabled) { return $DisableEnableButtonToolTipDisabled }
     Stop-FunctionMeasurement -FunctionName "Get-DisableEnableButtonToolTip"
@@ -6858,10 +9249,23 @@ function Set-MenuButtonsEnabledState {
     $TargetMenu = Resolve-TargetElement $Menu
     if (-not $TargetMenu) { return }
 
-    :Suffixes foreach ($Suffix in $Suffixes) {
-        $Buttons = Find-ObjectWhere -Object ([ref]$TargetMenu) -FindWhere { $_.Name -like "*_$Suffix" -or $_.Name -eq $Suffix }
-        :Buttons foreach ($Button in @($Buttons)) {
-            if ($Button) { $Button.IsEnabled = $IsEnabled }
+    if ($TargetMenu.Tag -is [hashtable] -and $TargetMenu.Tag.ButtonsByName) {
+        $BtnMap = $TargetMenu.Tag.ButtonsByName
+        foreach ($Suffix in $Suffixes) {
+            foreach ($Key in $BtnMap.Keys) {
+                if ($Key -like "*_$Suffix" -or $Key -eq $Suffix) {
+                    $Btn = $BtnMap[$Key]
+                    if ($Btn) { $Btn.IsEnabled = $IsEnabled }
+                }
+            }
+        }
+    }
+    else {
+        :Suffixes foreach ($Suffix in $Suffixes) {
+            $Buttons = Find-ObjectWhere -Object ([ref]$TargetMenu) -FindWhere { $_.Name -like "*_$Suffix" -or $_.Name -eq $Suffix }
+            :Buttons foreach ($Button in @($Buttons)) {
+                if ($Button) { $Button.IsEnabled = $IsEnabled }
+            }
         }
     }
 
@@ -6921,6 +9325,20 @@ function Test-AncestorBorderButtonState {
     }
 
     :Borders foreach ($ContentBorder in $ContentBorders) {
+        if ($ContentBorder.Tag -is [hashtable]) {
+            if ($ButtonSelector.ToString() -like "*Lock*" -and $ContentBorder.Tag.ContainsKey('IsLocked')) {
+                if ($ContentBorder.Tag.IsLocked) {
+                    return $true
+                }
+                continue Borders
+            }
+            if ($ButtonSelector.ToString() -like "*Disable*" -and $ContentBorder.Tag.ContainsKey('IsDisabled')) {
+                if ($ContentBorder.Tag.IsDisabled) {
+                    return $true
+                }
+                continue Borders
+            }
+        }
         $Button = & $ButtonSelector $ContentBorder
         if ($Button) {
             $Value = Get-ContentValue $Button
@@ -6965,19 +9383,51 @@ function Get-WrapperOwnActionButton {
     $TargetElem = Resolve-TargetElement $Element
     if (-not $TargetElem) { return $null }
     Ensure-WrapperActionButtons -Element $TargetElem
-    $SearchRoot = Get-WrapperMenu -Wrapper $TargetElem
+    $SearchRoot = if ($script:UniversalSharedMenu -and $script:UniversalSharedMenu.Tag -is [hashtable] -and $script:UniversalSharedMenu.Tag.ActiveWrapper -eq $TargetElem) { $script:UniversalSharedMenu } else { Get-WrapperMenu -Wrapper $TargetElem }
     if (-not $SearchRoot) { $SearchRoot = $TargetElem }
-    if (-not [string]::IsNullOrWhiteSpace($Name)) {
-        $Found = Find-ObjectWhere -Object ([ref]$SearchRoot) -FindWhere { $_.Name -eq $Name } -FindMax 1
+
+    $Found = $null
+    if ($SearchRoot.Tag -is [hashtable] -and $SearchRoot.Tag.ButtonsByName) {
+        $BtnMap = $SearchRoot.Tag.ButtonsByName
+        if (-not [string]::IsNullOrWhiteSpace($Name) -and $BtnMap.ContainsKey($Name)) {
+            $Found = $BtnMap[$Name]
+        }
+        elseif (-not [string]::IsNullOrWhiteSpace($Suffix)) {
+            foreach ($Key in $BtnMap.Keys) {
+                if ($Key -like "*$Suffix") {
+                    $Found = $BtnMap[$Key]
+                    break
+                }
+            }
+        }
+        elseif ($IsDisableButton) {
+            foreach ($Key in $BtnMap.Keys) {
+                if ($Key -like "*$DisableEnableButtonNameSuffix" -and $Key -notlike "*All*") {
+                    $Found = $BtnMap[$Key]
+                    break
+                }
+            }
+        }
+        else {
+            if ($BtnMap.ContainsKey($LockUnlockButtonName)) {
+                $Found = $BtnMap[$LockUnlockButtonName]
+            }
+        }
     }
-    elseif (-not [string]::IsNullOrWhiteSpace($Suffix)) {
-        $Found = Find-ObjectWhere -Object ([ref]$SearchRoot) -FindWhere { $_.Name -like "*$Suffix" } -FindMax 1
-    }
-    elseif ($IsDisableButton) {
-        $Found = Find-ObjectWhere -Object ([ref]$SearchRoot) -FindWhere { $_.Name -like "*$DisableEnableButtonNameSuffix" -and $_.Name -notlike "*All*" } -FindMax 1
-    }
-    else {
-        $Found = Find-ObjectWhere -Object ([ref]$SearchRoot) -FindWhere { $_.Name -eq $LockUnlockButtonName } -FindMax 1
+
+    if (-not $Found) {
+        if (-not [string]::IsNullOrWhiteSpace($Name)) {
+            $Found = Find-ObjectWhere -Object ([ref]$SearchRoot) -FindWhere { $_.Name -eq $Name } -FindMax 1
+        }
+        elseif (-not [string]::IsNullOrWhiteSpace($Suffix)) {
+            $Found = Find-ObjectWhere -Object ([ref]$SearchRoot) -FindWhere { $_.Name -like "*$Suffix" } -FindMax 1
+        }
+        elseif ($IsDisableButton) {
+            $Found = Find-ObjectWhere -Object ([ref]$SearchRoot) -FindWhere { $_.Name -like "*$DisableEnableButtonNameSuffix" -and $_.Name -notlike "*All*" } -FindMax 1
+        }
+        else {
+            $Found = Find-ObjectWhere -Object ([ref]$SearchRoot) -FindWhere { $_.Name -eq $LockUnlockButtonName } -FindMax 1
+        }
     }
     Stop-FunctionMeasurement -FunctionName "Get-WrapperOwnActionButton"
     return (Resolve-TargetElement $Found)
@@ -6986,6 +9436,12 @@ function Get-WrapperOwnActionButton {
 function Get-IsElementLockedSelf {
     param($Element)
     Start-FunctionMeasurement -FunctionName "Get-IsElementLockedSelf"
+    $Target = Resolve-TargetElement $Element
+    if ($Target -and $Target.Tag -is [hashtable] -and $Target.Tag.ContainsKey('IsLocked') -and $Target.Tag.IsLocked) {
+        return $true
+    }
+    $Indicator = Get-WrapperLockIndicatorButton -Wrapper $Element
+    if ($Indicator) { return $true }
     $LockButton = Get-WrapperOwnActionButton -Element $Element
     if ($LockButton) {
         return ($LockButton.Icon -eq $LockUnlockButtonIconLocked)
@@ -6997,6 +9453,12 @@ function Get-IsElementLockedSelf {
 function Get-IsElementDisabledSelf {
     param($Element)
     Start-FunctionMeasurement -FunctionName "Get-IsElementDisabledSelf"
+    $Target = Resolve-TargetElement $Element
+    if ($Target -and $Target.Tag -is [hashtable] -and $Target.Tag.ContainsKey('IsDisabled') -and $Target.Tag.IsDisabled) {
+        return $true
+    }
+    $Indicator = Get-WrapperDisableIndicatorButton -Wrapper $Element
+    if ($Indicator) { return $true }
     $DisableButton = Get-WrapperOwnActionButton -Element $Element -IsDisableButton
     if ($DisableButton) {
         return ($DisableButton.Icon -eq $DisableEnableButtonIconDisabled)
@@ -7011,12 +9473,24 @@ function Set-TargetLockedState {
         [bool]$IsLocked
     )
     Start-FunctionMeasurement -FunctionName 'Set-TargetLockedState'
-    $LockButton = Get-WrapperOwnActionButton -Element $Target
-    if (-not $LockButton) { return }
+    $TargetElem = Resolve-TargetElement $Target
+    if (-not $TargetElem) {
+        Stop-FunctionMeasurement -FunctionName 'Set-TargetLockedState'
+        return
+    }
 
-    $CurrentlyLocked = ($LockButton.Icon -eq $LockUnlockButtonIconLocked)
-    if ($CurrentlyLocked -ne $IsLocked) {
-        Invoke-LockUnlockButtonClick $LockButton $null
+    if (-not ($TargetElem.Tag -is [hashtable])) { $TargetElem.Tag = @{} }
+    $TargetElem.Tag.IsLocked = $IsLocked
+
+    Set-WrapperLockVisualState -Wrapper $TargetElem -IsLocked $IsLocked
+
+    $OwnMenu = Get-WrapperMenu -Wrapper $TargetElem
+    if ($OwnMenu) {
+        Set-MenuButtonsEnabledState -Menu $OwnMenu -Suffixes @($RandomValuesButtonNameSuffix, $ClearButtonNameSuffix, $DisableEnableButtonNameSuffix, $DeleteButtonNameSuffix) -IsEnabled (-not $IsLocked)
+    }
+
+    if ($script:UniversalSharedMenu -and $script:UniversalSharedMenu.Tag -is [hashtable] -and $script:UniversalSharedMenu.Tag.ActiveWrapper -eq $TargetElem) {
+        Update-UniversalMenuActionsVisibility -TargetWrapper $TargetElem
     }
 
     Stop-FunctionMeasurement -FunctionName 'Set-TargetLockedState'
@@ -7057,15 +9531,57 @@ function Set-TargetMinMaxState {
 function Set-TargetDisabledState {
     param(
         $Target,
-        [bool]$IsDisabled
+        [bool]$IsDisabled,
+        [switch]$SkipParentSync
     )
     Start-FunctionMeasurement -FunctionName 'Set-TargetDisabledState'
-    $DisableButton = Get-WrapperOwnActionButton -Element $Target -IsDisableButton
-    if (-not $DisableButton) { return }
+    $TargetElem = Resolve-TargetElement $Target
+    if (-not $TargetElem) {
+        Stop-FunctionMeasurement -FunctionName 'Set-TargetDisabledState'
+        return
+    }
 
-    $CurrentlyDisabled = ($DisableButton.Icon -eq $DisableEnableButtonIconDisabled)
-    if ($CurrentlyDisabled -ne $IsDisabled) {
-        Invoke-DisableEnableButtonClick $DisableButton $null
+    if (-not ($TargetElem.Tag -is [hashtable])) { $TargetElem.Tag = @{} }
+    $TargetElem.Tag.IsDisabled = $IsDisabled
+
+    Set-WrapperDisabledVisualState -Wrapper $TargetElem -IsDisabled $IsDisabled
+
+    $ContentSlot = Get-WrapperContentSlot -Wrapper $TargetElem
+    if ($ContentSlot) {
+        $ContentSlot.IsEnabled = (-not $IsDisabled)
+    }
+    $OwnContent = if ($TargetElem.Tag -is [hashtable] -and $TargetElem.Tag.ContainsKey('Content') -and $TargetElem.Tag.Content) {
+        $TargetElem.Tag.Content
+    }
+    else {
+        Find-ObjectWhere -Object ([ref]$TargetElem) -FindWhere { $_.Name -eq $ContentElementName } -DepthMax 2 -FindMax 1
+    }
+    if ($OwnContent) {
+        $OwnContent.IsEnabled = (-not $IsDisabled)
+    }
+    $DTP = if ($TargetElem.Tag -is [hashtable] -and $TargetElem.Tag.ContainsKey('CustomDateTimePicker') -and $TargetElem.Tag.CustomDateTimePicker) {
+        $TargetElem.Tag.CustomDateTimePicker
+    }
+    else {
+        Find-ObjectWhere -Object ([ref]$TargetElem) -FindWhere { $_.Name -eq $CustomDateTimePickerName } -DepthMax 2 -FindMax 1
+    }
+    if ($DTP) {
+        $DTP.IsEnabled = (-not $IsDisabled)
+    }
+
+    if (-not $SkipParentSync) {
+        Confirm-ArrayEnableButton -Item ([ref]$TargetElem)
+        $ParentBorder = Get-ParentWrapperBorder -Element $TargetElem -HeaderOnly
+        if ($ParentBorder) {
+            $ParentSlot = Get-WrapperContentSlot -Wrapper $ParentBorder
+            if ($ParentSlot) {
+                Sync-ArraySlotState -ContentSlot $ParentSlot -ContainerWrapper $ParentBorder
+            }
+        }
+    }
+
+    if ($script:UniversalSharedMenu -and $script:UniversalSharedMenu.Tag -is [hashtable] -and $script:UniversalSharedMenu.Tag.ActiveWrapper -eq $TargetElem) {
+        Update-UniversalMenuActionsVisibility -TargetWrapper $TargetElem
     }
 
     Stop-FunctionMeasurement -FunctionName 'Set-TargetDisabledState'
@@ -7106,11 +9622,11 @@ function Get-TypeConstructors {
         $Parameters = $Constructor.GetParameters()
         :Parameters foreach ($Parameter in $Parameters) {
             [void]$Results.Add([PSCustomObject]@{
-                Constructor  = $i
-                Name         = $Parameter.Name
-                Type         = $Parameter.ParameterType.FullName
-                DefaultValue = $Parameter.DefaultValue
-            })
+                    Constructor  = $i
+                    Name         = $Parameter.Name
+                    Type         = $Parameter.ParameterType.FullName
+                    DefaultValue = $Parameter.DefaultValue
+                })
             if ($Parameter.HasDefaultValue) {
                 Write-Host "HasDefaultValue: $($Parameter.DefaultValue)" -ForegroundColor Yellow
             }
@@ -7193,6 +9709,76 @@ $BaseWindow.Add_KeyDown({
                 $SummaryData | Out-GridView -Title 'Function Measurement Summary'
             }
             $e.Handled = $true
+        }
+    })
+
+$BaseWindow.Add_Closing({
+        param($s, $e)
+
+        # 1. Check for any active QuickSets in the window
+        $ActiveWrappers = Get-ActiveQuickSetWrappers -Window $BaseWindow
+        if ($ActiveWrappers -and $ActiveWrappers.Count -gt 0) {
+            $ModifiedWrappers = $ActiveWrappers | Where-Object { Test-IsWrapperQuickSetModified -Wrapper $_ }
+            if ($ModifiedWrappers) {
+                foreach ($Wrapper in @($ModifiedWrappers)) {
+                    $ActiveName = $Wrapper.Tag['ActiveQuickSet']
+                    $PromptResult = Show-QuickSetSavePromptDialog `
+                        -Title 'QuickSet - Save Changes' `
+                        -Message "Do you want to save changes to QuickSet '$ActiveName' before closing?"
+
+                    if ($PromptResult -eq 'Save') {
+                        $SaveSuccess = Save-QuickSetFile -Wrapper $Wrapper -QuickSetName $ActiveName
+                        if (-not $SaveSuccess) {
+                            $e.Cancel = $true
+                            return
+                        }
+                    }
+                    elseif ($PromptResult -eq 'Cancel') {
+                        $e.Cancel = $true
+                        return
+                    }
+                }
+            }
+            # Active QuickSets exist and are either unmodified or saved/discarded: allow closure
+            return
+        }
+
+        # 2. Check if no active QuickSet, but root wrapper has entered values
+        $RootWrapper = if ($BaseWindow.Content -and $BaseWindow.Content.Content -and $BaseWindow.Content.Content.Children.Count -gt 0) {
+            Resolve-TargetElement $BaseWindow.Content.Content.Children[0]
+        }
+        else { $null }
+
+        if ($RootWrapper -and (Test-WrapperHasQuickSetValue -Wrapper $RootWrapper)) {
+            $PromptResult = Show-QuickSetSavePromptDialog `
+                -Title 'QuickSet - Save Values' `
+                -Message 'You have unsaved values. Do you want to save them as a QuickSet before closing?'
+
+            if ($PromptResult -eq 'Save') {
+                $Type = Get-WrapperTargetType -Wrapper $RootWrapper
+                $TypeDir = Get-QuickSetTypeDirectory -Type $Type
+                $TypeNameDisplay = if ($Type -is [type]) { $Type.Name } else { $Type.ToString().Split('.')[-1] }
+                $Target = Request-ValidatedQuickSetTarget `
+                    -Title 'Save QuickSet As' `
+                    -Prompt "Enter QuickSet name for $($TypeNameDisplay):" `
+                    -DefaultValue '' `
+                    -TypeDir $TypeDir
+
+                if (-not $Target) {
+                    $e.Cancel = $true
+                    return
+                }
+
+                $SaveSuccess = Save-QuickSetFile -Wrapper $RootWrapper -QuickSetName $Target.Name
+                if (-not $SaveSuccess) {
+                    $e.Cancel = $true
+                    return
+                }
+            }
+            elseif ($PromptResult -eq 'Cancel') {
+                $e.Cancel = $true
+                return
+            }
         }
     })
 
